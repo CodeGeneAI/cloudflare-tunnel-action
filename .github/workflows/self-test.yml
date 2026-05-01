@@ -38,10 +38,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Cover Linux x64, Linux arm64, macOS arm64 (default for macos-latest),
-        # and macOS x64 (macos-13). Updates here keep the README's "Supported
-        # platforms" claim honest.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13]
+        # v1 supports Linux x64 and arm64 only. macOS comes back in v1.1.
+        os: [ubuntu-latest, ubuntu-24.04-arm]
     # Hoisted to job-level so step `if:` expressions can read these — step
     # `env:` blocks are materialized AFTER `if:` is evaluated, so a step
     # that gates on its own env value sees an empty string.
