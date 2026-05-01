@@ -42,7 +42,7 @@ describe("parseInputs", () => {
     expect(inputs.mode).toBe("connect");
     if (inputs.mode === "connect") {
       expect(inputs.tunnelToken).toBe("abc");
-      expect(inputs.cloudflaredVersion).toBe("latest");
+      expect(inputs.cloudflaredVersion).toBe("2026.3.0");
       expect(inputs.loglevel).toBe("info");
       expect(inputs.metrics).toBe("localhost:0");
       expect(inputs.waitForConnections).toBe(true);

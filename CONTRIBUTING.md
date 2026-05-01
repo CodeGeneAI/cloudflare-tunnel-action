@@ -73,8 +73,8 @@ Land conventional-commit messages (`feat:`, `fix:`, `perf:`, `deps:`,
 `docs:`) on `main` and the bot opens a release PR. Merging it cuts
 `vX.Y.Z` and the `update-major-tag` workflow advances `v1` and `v1.MINOR`.
 
-While the action is in `v0.x.y`, releases bump the **minor** version on
-`feat:` commits (per `bump-minor-pre-major`).
+Bumps follow standard semver: `feat:` → minor, `fix:`/`perf:`/`deps:` →
+patch, `feat!:` or `BREAKING CHANGE:` footer → major.
 
 ## Code style
 

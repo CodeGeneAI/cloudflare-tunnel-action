@@ -70,9 +70,12 @@ const requireInput = (name: string, value: string, mode: string): string => {
 export const parseInputs = (): ActionInputs => {
   const mode = (core.getInput("mode") || "connect").trim().toLowerCase();
 
+  // Defaults here are fallbacks for off-runner usage; in a real Actions
+  // run `action.yml` always supplies the value. Keep them in lockstep with
+  // the `default:` declared in action.yml.
   const common: CommonInputs = {
     cloudflaredVersion: (
-      core.getInput("cloudflared-version") || "latest"
+      core.getInput("cloudflared-version") || "2026.3.0"
     ).trim(),
     loglevel: parseLogLevel(core.getInput("loglevel") || "info"),
     metrics: (core.getInput("metrics") || "localhost:0").trim(),

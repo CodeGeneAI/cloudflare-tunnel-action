@@ -249,6 +249,9 @@ Runnable workflow snippets live in [`examples/`](./examples/):
   existing tunnel and run E2E tests against a private origin.
 - [`examples/create.yml`](./examples/create.yml) — provision an
   ephemeral tunnel per PR and pass its CNAME to downstream steps.
+- [`examples/multi-connector.yml`](./examples/multi-connector.yml) —
+  run a long-lived staging connector AND an ephemeral PR-scoped
+  connector in the same job.
 
 ## Contributing
 

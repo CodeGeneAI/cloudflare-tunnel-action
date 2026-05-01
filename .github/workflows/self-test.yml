@@ -42,15 +42,19 @@ jobs:
         # and macOS x64 (macos-13). Updates here keep the README's "Supported
         # platforms" claim honest.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13]
+    # Hoisted to job-level so step `if:` expressions can read these — step
+    # `env:` blocks are materialized AFTER `if:` is evaluated, so a step
+    # that gates on its own env value sees an empty string.
+    env:
+      PROBE_URL: ${{ secrets.SELF_TEST_PROBE_URL }}
+      TUNNEL_TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Require self-test secrets in canonical repo
         if: github.repository == env.CANONICAL_REPO
-        env:
-          TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
         run: |
-          if [ -z "$TOKEN" ]; then
+          if [ -z "$TUNNEL_TOKEN" ]; then
             echo "::error::SELF_TEST_TUNNEL_TOKEN is not set in $CANONICAL_REPO. Set the org-level secret to keep this workflow meaningful."
             exit 1
           fi
@@ -59,21 +63,17 @@ jobs:
         uses: ./
         with:
           mode: connect
-          tunnel-token: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+          tunnel-token: ${{ env.TUNNEL_TOKEN }}
           wait-for-connections: "true"
         env:
           ACTIONS_STEP_DEBUG: "true"
 
       - name: Warn if probe URL is missing on canonical repo
         if: github.repository == env.CANONICAL_REPO && env.PROBE_URL == ''
-        env:
-          PROBE_URL: ${{ secrets.SELF_TEST_PROBE_URL }}
         run: echo "::warning::SELF_TEST_PROBE_URL is not set; the connect-mode self-test only proves the connector becomes healthy, not that requests round-trip through the tunnel."
 
       - name: Probe private origin via tunnel
         if: env.PROBE_URL != ''
-        env:
-          PROBE_URL: ${{ secrets.SELF_TEST_PROBE_URL }}
         run: |
           set -euo pipefail
           for i in 1 2 3 4 5; do
@@ -87,14 +87,12 @@ jobs:
           exit 1
 
       - name: Verify the connector log contains no token leak
-        env:
-          TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           leaked=0
           for f in "$RUNNER_TEMP"/cloudflared-*.log; do
-            if grep -F -q -- "$TOKEN" "$f"; then
+            if grep -F -q -- "$TUNNEL_TOKEN" "$f"; then
               echo "::error::Connector log $f appears to contain the SELF_TEST_TUNNEL_TOKEN."
               leaked=1
             fi
@@ -153,7 +151,8 @@ jobs:
   # Runs after test-create completes — by that point the post-step has run
   # and the tunnel must be deleted from Cloudflare.
   verify-create-cleanup:
-    needs: test-create
+    needs: [guard, test-create]
+    if: needs.guard.outputs.run-self-test == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Assert tunnel deleted in post-step

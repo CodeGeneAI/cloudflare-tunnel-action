@@ -90,29 +90,34 @@ export const installCloudflared = async (
     // runners with shared caches, or a previous run that bypassed sha256
     // verification via `latest` mode) cannot serve an unverified binary.
     const expectedHash = await downloadChecksum(version, platform.assetName);
-    if (expectedHash) {
-      const actualHash = await sha256OfFile(cachedBinary);
-      if (actualHash !== expectedHash) {
-        log.warning(
-          `Cached cloudflared ${version} fails sha256 verification (expected ${expectedHash}, got ${actualHash}); re-downloading.`,
-        );
-        // Fall through to the download path below by skipping the early return.
-      } else {
+    const actualHash = expectedHash ? await sha256OfFile(cachedBinary) : null;
+    const decision = decideCacheUse(
+      expectedHash,
+      actualHash,
+      options.allowMissingSidecar,
+    );
+    if (decision === "use") {
+      if (expectedHash) {
         log.info(
           `cloudflared ${version} found in tool cache (sha256 verified): ${cached}`,
         );
-        return cachedBinary;
+      } else {
+        log.info(
+          `cloudflared ${version} found in tool cache: ${cached} (sidecar unavailable, cache served as-is in latest mode).`,
+        );
       }
-    } else if (options.allowMissingSidecar) {
-      log.info(
-        `cloudflared ${version} found in tool cache: ${cached} (sidecar unavailable, cache served as-is in latest mode).`,
-      );
       return cachedBinary;
+    }
+    if (expectedHash && actualHash) {
+      log.warning(
+        `Cached cloudflared ${version} fails sha256 verification (expected ${expectedHash}, got ${actualHash}); re-downloading.`,
+      );
     } else {
       log.warning(
         `Cached cloudflared ${version} cannot be re-verified (no sidecar); re-downloading to fail-closed.`,
       );
     }
+    // Fall through to the download path below.
   }
 
   const assetUrl = `${RELEASE_BASE}/${version}/${platform.assetName}`;

@@ -1,3 +1,4 @@
+import { USER_AGENT } from "../util/constants";
 import { CloudflareApiError } from "./errors";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -81,6 +82,7 @@ export class CloudflareTunnelsClient {
       headers: {
         Authorization: `Bearer ${this.managementToken}`,
         "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),

@@ -1,0 +1,36 @@
+name: parallel-private-environments
+
+on:
+  pull_request:
+
+# Two connectors in one job: one for the staging tunnel, one for an
+# ephemeral per-PR tunnel. Each `uses:` of the action writes its own
+# state file (`cf-tunnel-state-<pid>.json`) under $RUNNER_TEMP, and the
+# single post-step globs the directory and tears down both connectors
+# (and, for `mode=create`, deletes the tunnel) on job exit.
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Long-lived staging tunnel; only the connector is started here.
+      - uses: CodeGeneAI/cloudflare-tunnel-action@v1
+        with:
+          mode: connect
+          tunnel-token: ${{ secrets.STAGING_TUNNEL_TOKEN }}
+
+      # Ephemeral tunnel for THIS pull request, torn down on exit.
+      - id: pr-tunnel
+        uses: CodeGeneAI/cloudflare-tunnel-action@v1
+        with:
+          mode: create
+          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          tunnel-name: pr-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - run: |
+          # Reach the long-lived staging origin AND the ephemeral PR origin
+          # from the same job.
+          curl --fail https://staging.example.com/health
+          curl --fail "${{ steps.pr-tunnel.outputs.tunnel-cname }}/health"
