@@ -45,17 +45,24 @@ describe("decodeTunnelIdFromToken", () => {
   });
 
   test("decodes base64url-encoded payloads (- and _ characters)", () => {
-    // Construct a payload whose standard base64 contains `+` and `/`, then
-    // base64url-encode it to ensure decode handles the URL-safe alphabet.
+    // The decoder maps URL-safe `-`/`_` back to standard `+`/`/` before
+    // Buffer.from. Force a payload whose standard base64 reliably contains
+    // those URL-unsafe chars so the translation path is actually exercised.
+    // `~` (0x7e) tripled produces standard base64 `fn5+`, so a run of
+    // tildes guarantees `+` characters; `ÿÿ` adds bytes that
+    // commonly produce `/` too.
+    const tValue = "tunnel~~~~~~~~~ÿÿ";
     const standard = Buffer.from(
-      JSON.stringify({ t: "url-safe-tunnel-id" }),
+      JSON.stringify({ t: tValue }),
       "utf8",
     ).toString("base64");
-    expect(standard).toMatch(/[+/]|^/); // sanity: may or may not contain + or /
+    // Real assertion (no `^` alternation): standard form must contain at
+    // least one URL-unsafe character so the translation is non-trivial.
+    expect(standard).toMatch(/[+/]/);
     const urlSafe = standard
       .replace(/=+$/g, "")
       .replace(/\+/g, "-")
       .replace(/\//g, "_");
-    expect(decodeTunnelIdFromToken(urlSafe)).toBe("url-safe-tunnel-id");
+    expect(decodeTunnelIdFromToken(urlSafe)).toBe(tValue);
   });
 });
