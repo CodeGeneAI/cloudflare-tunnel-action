@@ -5,14 +5,29 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      # The job itself only needs read; the App token below carries the
+      # write scopes for both the release PR and the published release.
+      contents: read
     steps:
+      # Mint a short-lived installation token from the CodeGeneAI App so the
+      # release PR + published release are authored by the App, NOT by
+      # GITHUB_TOKEN. GITHUB_TOKEN by design cannot trigger downstream
+      # workflows; an App token can — that's what fires update-major-tag.yml
+      # automatically on each release publish.
+      - id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: 2479570
+          private-key: ${{ secrets.CODEGENEAI_APP_PRIVATE_KEY }}
+
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
