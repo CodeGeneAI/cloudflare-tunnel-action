@@ -43,4 +43,19 @@ describe("decodeTunnelIdFromToken", () => {
   test("tolerates malformed base64 without throwing", () => {
     expect(decodeTunnelIdFromToken("@@@.@@@.@@@")).toBeNull();
   });
+
+  test("decodes base64url-encoded payloads (- and _ characters)", () => {
+    // Construct a payload whose standard base64 contains `+` and `/`, then
+    // base64url-encode it to ensure decode handles the URL-safe alphabet.
+    const standard = Buffer.from(
+      JSON.stringify({ t: "url-safe-tunnel-id" }),
+      "utf8",
+    ).toString("base64");
+    expect(standard).toMatch(/[+/]|^/); // sanity: may or may not contain + or /
+    const urlSafe = standard
+      .replace(/=+$/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+    expect(decodeTunnelIdFromToken(urlSafe)).toBe("url-safe-tunnel-id");
+  });
 });

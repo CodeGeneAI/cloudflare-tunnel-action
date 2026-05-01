@@ -42,7 +42,7 @@ describe("CloudflareTunnelsClient", () => {
     await expect(client.list()).rejects.toThrow(/non-array/);
   });
 
-  test("create posts the right body", async () => {
+  test("create posts the right body and headers", async () => {
     let captured: { url?: string; init?: RequestInit } = {};
     const fetchImpl: FetchLike = async (url, init) => {
       captured = { url, init };
@@ -62,6 +62,10 @@ describe("CloudflareTunnelsClient", () => {
     >;
     expect(body.name).toBe("beta");
     expect(body.config_src).toBe("cloudflare");
+    const headers = captured.init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer tok");
+    expect(headers["User-Agent"]).toMatch(/cloudflare-tunnel-action/);
+    expect(headers["Content-Type"]).toBe("application/json");
   });
 
   test("getToken returns the token string", async () => {

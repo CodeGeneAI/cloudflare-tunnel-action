@@ -26,8 +26,12 @@ export const decodeTunnelIdFromToken = (token: string): string | null => {
     const parts = token.split(".");
     const payloadB64 = parts.length === 3 ? parts[1] : token;
     if (!payloadB64) return null;
-    const padded = payloadB64.padEnd(
-      payloadB64.length + ((4 - (payloadB64.length % 4)) % 4),
+    // Cloudflare connector tokens (and JWT payloads) are base64url-encoded —
+    // `-` and `_` instead of `+` and `/`, with optional padding. Translate
+    // back to standard base64 before handing to Buffer.
+    const standard = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = standard.padEnd(
+      standard.length + ((4 - (standard.length % 4)) % 4),
       "=",
     );
     const decoded = Buffer.from(padded, "base64").toString("utf8");
