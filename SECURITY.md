@@ -49,8 +49,8 @@ What this action does **not** defend against:
 
 - **A malicious workflow YAML in the same repository.** Any other step in
   the same job can read `$RUNNER_TEMP/cloudflared-*.log` and
-  `$RUNNER_TEMP/cf-tunnel-state.json`. The state file is created with
-  mode `0600`, but it lives on a runner that the workflow already trusts.
+  `$RUNNER_TEMP/cf-tunnel-state-*.json`. State files are created with
+  mode `0600`, but they live on a runner that the workflow already trusts.
   Treat the runner as a trust boundary — don't run untrusted code in the
   same job that holds your tunnel token.
 - **API-token downgrade by setting `cleanup-on-exit: false`.** A

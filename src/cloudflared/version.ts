@@ -1,4 +1,5 @@
 import type { FetchLike } from "../cloudflare/api";
+import { USER_AGENT } from "../util/constants";
 import * as log from "../util/log";
 import { sleep } from "../util/sleep";
 
@@ -15,7 +16,7 @@ export interface ResolveVersionOptions {
 const buildHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "codegeneai/cloudflare-tunnel-action",
+    "User-Agent": USER_AGENT,
   };
   // Use the runner's GITHUB_TOKEN when present to avoid the unauthenticated
   // 60-req/hour-per-IP rate limit. The token is a GH-issued credential

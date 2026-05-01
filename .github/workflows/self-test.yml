@@ -64,6 +64,12 @@ jobs:
         env:
           ACTIONS_STEP_DEBUG: "true"
 
+      - name: Warn if probe URL is missing on canonical repo
+        if: github.repository == env.CANONICAL_REPO && env.PROBE_URL == ''
+        env:
+          PROBE_URL: ${{ secrets.SELF_TEST_PROBE_URL }}
+        run: echo "::warning::SELF_TEST_PROBE_URL is not set; the connect-mode self-test only proves the connector becomes healthy, not that requests round-trip through the tunnel."
+
       - name: Probe private origin via tunnel
         if: env.PROBE_URL != ''
         env:

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { USER_AGENT } from "../src/util/constants";
 
 interface PackageJson {
   readonly dependencies?: Record<string, string>;
@@ -28,7 +29,7 @@ const fetchLatestNpm = async (name: string): Promise<string> => {
 const fetchLatestCloudflared = async (): Promise<string> => {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "codegeneai/cloudflare-tunnel-action",
+    "User-Agent": USER_AGENT,
   };
   const ghToken = process.env.GITHUB_TOKEN;
   if (ghToken) headers.Authorization = `Bearer ${ghToken}`;

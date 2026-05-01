@@ -104,9 +104,23 @@ Pin to the moving major tag:
 ```
 
 `@v1` follows the latest `v1.x.y` release. We also publish a moving
-`v1.MINOR` tag and immutable `v1.MINOR.PATCH` tags. While the action is
-still in `v0.x.y`, please pin a specific patch version — `v0.*` may
-contain breaking changes between releases.
+`v1.MINOR` tag and immutable `v1.MINOR.PATCH` tags — pin the immutable
+tag if you want bit-for-bit reproducibility, or `@v1` if you want
+patches and minor releases automatically.
+
+Releases are driven by [release-please][rp] from conventional commits;
+[CHANGELOG.md](./CHANGELOG.md) records every change. Breaking changes
+will only ship on a new major (`v2`).
+
+[rp]: https://github.com/googleapis/release-please-action
+
+## Using multiple connectors in one job
+
+Two `uses:` of this action in the same job each spawn their own
+cloudflared and write a per-process state file
+(`cf-tunnel-state-<pid>.json` under `$RUNNER_TEMP`). The single
+post-step globs the directory and tears down every connector + tunnel
+the job spawned, so multi-instance use is supported and isolated.
 
 ## Architecture
 
@@ -120,8 +134,11 @@ contain breaking changes between releases.
    In `create` mode it also deletes the tunnel via the API, retrying on
    active-connections (with `cleanupConnections`) and transient 5xx /
    429 / network errors (12 attempts × 5s by default).
-5. State lives in `$RUNNER_TEMP/cf-tunnel-state.json` for the post-step
-   to read. Tokens are never serialized — only the env-var name is.
+5. State lives in per-process files
+   `$RUNNER_TEMP/cf-tunnel-state-<pid>.json`. The post-step globs the
+   directory and tears down every connector + tunnel that the job spawned
+   (so two `uses:` of this action in one job each clean up their own).
+   Tokens are never serialized — only the env-var name is.
 
 ## Supported platforms
 

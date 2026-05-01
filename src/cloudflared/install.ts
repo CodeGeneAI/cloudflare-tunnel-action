@@ -20,6 +20,17 @@ const sha256OfFile = async (file: string): Promise<string> => {
   return hash.digest("hex");
 };
 
+// Parses the contents of a `.sha256` sidecar file. Cloudflare publishes them
+// either as a bare 64-char hex digest or in the `<digest>  <filename>` format.
+// Returns the lowercased digest on a clean parse, otherwise null.
+export const parseSha256Sidecar = (raw: string): string | null => {
+  const first = raw.trim().split(/\s+/)[0];
+  if (first && /^[0-9a-f]{64}$/i.test(first)) {
+    return first.toLowerCase();
+  }
+  return null;
+};
+
 const downloadChecksum = async (
   version: string,
   assetName: string,
@@ -27,15 +38,33 @@ const downloadChecksum = async (
   const url = `${RELEASE_BASE}/${version}/${assetName}.sha256`;
   try {
     const checksumPath = await tc.downloadTool(url);
-    const raw = fs.readFileSync(checksumPath, "utf8").trim();
-    const first = raw.split(/\s+/)[0];
-    if (first && /^[0-9a-f]{64}$/i.test(first)) {
-      return first.toLowerCase();
-    }
-    return null;
+    const raw = fs.readFileSync(checksumPath, "utf8");
+    return parseSha256Sidecar(raw);
   } catch {
     return null;
   }
+};
+
+// Pure decision helper for the cache-hit reverify path. Centralizes the
+// "use vs redownload" rule so it can be unit-tested without spinning up
+// `@actions/tool-cache`.
+//
+//   expected   actual    allowMissingSidecar  → decision
+//   <hash>     <match>   *                    → "use"
+//   <hash>     <miss>    *                    → "redownload"
+//   null       *         true                 → "use"
+//   null       *         false                → "redownload"
+//
+// `actual` is unused when `expected === null`; passed through for symmetry.
+export const decideCacheUse = (
+  expected: string | null,
+  actual: string | null,
+  allowMissingSidecar: boolean,
+): "use" | "redownload" => {
+  if (expected !== null) {
+    return actual === expected ? "use" : "redownload";
+  }
+  return allowMissingSidecar ? "use" : "redownload";
 };
 
 export interface InstallOptions {

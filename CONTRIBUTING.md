@@ -31,7 +31,9 @@ what's committed — exactly what the CI gate does.
   mode and by the cleanup retry loop.
 - `src/cloudflared/{install,run,health,version,platform}.ts` — binary
   download, child-process spawn, healthy-connection wait.
-- `src/state.ts` — JSON state file at `$RUNNER_TEMP/cf-tunnel-state.json`.
+- `src/state.ts` — Per-process JSON state files at
+  `$RUNNER_TEMP/cf-tunnel-state-<pid>.json`. The post-step globs them so
+  multiple `uses:` of the action in one job each clean up correctly.
   Tokens are never serialized; only the env-var name.
 
 ## Tests
