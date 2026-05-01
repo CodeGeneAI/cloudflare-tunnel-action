@@ -8,9 +8,9 @@ const makeClient = (
 ): CloudflareTunnelsClient => {
   let i = 0;
   const fetchImpl: FetchLike = async () => {
-    const next = responses[Math.min(i, responses.length - 1)];
-    i += 1;
+    const next = responses[i];
     if (!next) throw new Error("no more mocked responses");
+    i += 1;
     return next();
   };
   return new CloudflareTunnelsClient({
@@ -50,6 +50,17 @@ const notFound = () =>
     ),
   );
 
+const serverError = () =>
+  Promise.resolve(
+    new Response(
+      JSON.stringify({
+        success: false,
+        errors: [{ code: 9999, message: "internal" }],
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    ),
+  );
+
 const fastPolicy = { maxAttempts: 3, delayMs: 1 } as const;
 
 describe("deleteTunnelWithRetry", () => {
@@ -69,10 +80,17 @@ describe("deleteTunnelWithRetry", () => {
 
   test("retries on active-connections then succeeds", async () => {
     const client = makeClient([
-      activeConnectionsError,
-      okEmpty, // cleanupConnections
-      okEmpty, // delete retry
+      activeConnectionsError, // attempt 1: delete
+      okEmpty, // attempt 1: cleanupConnections
+      okEmpty, // attempt 2: delete
     ]);
+    await expect(
+      deleteTunnelWithRetry(client, "t-1", fastPolicy),
+    ).resolves.toBeUndefined();
+  });
+
+  test("retries on transient 5xx then succeeds", async () => {
+    const client = makeClient([serverError, okEmpty]);
     await expect(
       deleteTunnelWithRetry(client, "t-1", fastPolicy),
     ).resolves.toBeUndefined();
@@ -89,5 +107,34 @@ describe("deleteTunnelWithRetry", () => {
     await expect(
       deleteTunnelWithRetry(client, "t-1", fastPolicy),
     ).rejects.toBeInstanceOf(CloudflareApiError);
+  });
+
+  test("gives up after maxAttempts on persistent 5xx", async () => {
+    const client = makeClient([serverError, serverError, serverError]);
+    await expect(
+      deleteTunnelWithRetry(client, "t-1", fastPolicy),
+    ).rejects.toBeInstanceOf(CloudflareApiError);
+  });
+
+  test("does not retry on non-retryable 4xx", async () => {
+    let calls = 0;
+    const client = new CloudflareTunnelsClient({
+      accountId: "acc",
+      managementToken: "tok",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 1, message: "forbidden" }],
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+    await expect(
+      deleteTunnelWithRetry(client, "t-1", fastPolicy),
+    ).rejects.toBeInstanceOf(CloudflareApiError);
+    expect(calls).toBe(1);
   });
 });

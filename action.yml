@@ -30,9 +30,9 @@ inputs:
     default: "true"
 
   cloudflared-version:
-    description: 'cloudflared release tag (e.g. "2026.3.0") or "latest".'
+    description: 'cloudflared release tag (e.g. "2026.3.0") or "latest". Pinned by default for reproducibility; use "latest" to opt into the newest release on every run.'
     required: false
-    default: "latest"
+    default: "2026.3.0"
   loglevel:
     description: "cloudflared --loglevel (debug|info|warn|error|fatal)."
     required: false
@@ -52,13 +52,11 @@ inputs:
 
 outputs:
   tunnel-id:
-    description: "The Cloudflare tunnel ID (UUID). Always set in mode=create; best-effort decode in mode=connect."
+    description: "The Cloudflare tunnel ID (UUID). Always set in mode=create; best-effort decode from the token in mode=connect (may be empty for opaque tokens)."
   tunnel-cname:
-    description: "The tunnel CNAME target: {tunnel-id}.cfargotunnel.com."
-  tunnel-token:
-    description: "Connector token (masked). In mode=create this is the freshly fetched token; in mode=connect it echoes the input."
+    description: "The tunnel CNAME target: {tunnel-id}.cfargotunnel.com. Empty when tunnel-id is unknown."
   metrics-url:
-    description: "Resolved cloudflared metrics URL."
+    description: "Resolved cloudflared metrics URL (e.g. http://127.0.0.1:NNN). Useful for downstream `/ready` probes."
 
 runs:
   using: "node24"

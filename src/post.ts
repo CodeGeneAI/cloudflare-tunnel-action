@@ -4,6 +4,7 @@ import { deleteTunnelWithRetry } from "./cloudflare/delete-with-retry";
 import { tailLog } from "./cloudflared/run";
 import { type ConnectorState, clearState, readState } from "./state";
 import * as log from "./util/log";
+import { registerSecret } from "./util/log";
 import { sleep } from "./util/sleep";
 
 const SIGTERM_DRAIN_MS = 30_000;
@@ -63,6 +64,10 @@ const cleanupTunnel = async (state: ConnectorState): Promise<void> => {
     return;
   }
 
+  // Defense in depth: re-mask the token in this process so any subsequent
+  // error message that happens to include it stays redacted.
+  registerSecret(apiToken);
+
   const client = new CloudflareTunnelsClient({
     accountId: state.cleanup.accountId,
     managementToken: apiToken,
@@ -79,11 +84,17 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  try {
-    await terminate(state.pid);
-  } catch (e) {
-    log.warning(
-      `Failed to terminate cloudflared (pid ${state.pid}): ${e instanceof Error ? e.message : String(e)}`,
+  if (state.pid !== null) {
+    try {
+      await terminate(state.pid);
+    } catch (e) {
+      log.warning(
+        `Failed to terminate cloudflared (pid ${state.pid}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  } else {
+    log.info(
+      "No cloudflared pid recorded (rollback path); skipping connector termination.",
     );
   }
 
@@ -99,7 +110,7 @@ const main = async (): Promise<void> => {
     const tail = tailLog(state.logFile, 50);
     if (tail.length > 0) {
       core.startGroup("cloudflared (last 50 log lines)");
-      core.info(tail);
+      log.info(tail);
       core.endGroup();
     }
   }

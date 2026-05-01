@@ -41,3 +41,13 @@ export const isCloudflareTunnelActiveConnectionsError = (
 
 export const isCloudflareNotFoundError = (error: unknown): boolean =>
   error instanceof CloudflareApiError && error.status === 404;
+
+// Retryable transient failures: 5xx from Cloudflare's edge, 429 rate-limits,
+// and any non-API error (most commonly network blips: ECONNRESET, ENOTFOUND,
+// fetch-failed, AbortError).
+export const isRetryableTransientError = (error: unknown): boolean => {
+  if (error instanceof CloudflareApiError) {
+    return error.status >= 500 || error.status === 429;
+  }
+  return error instanceof Error;
+};

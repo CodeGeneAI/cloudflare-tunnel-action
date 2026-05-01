@@ -19,7 +19,7 @@ export interface ConnectModeResult {
   readonly tunnelId: string | null;
 }
 
-const decodeTunnelIdFromToken = (token: string): string | null => {
+export const decodeTunnelIdFromToken = (token: string): string | null => {
   try {
     const parts = token.split(".");
     const payloadB64 = parts.length === 3 ? parts[1] : token;
@@ -40,10 +40,15 @@ export const runConnect = async (
   params: ConnectModeParams,
 ): Promise<ConnectModeResult> => {
   const platform = detectPlatform();
+  const requestedLatest = params.cloudflaredVersion.trim() === "latest";
   const version = await resolveVersion(params.cloudflaredVersion);
   log.info(`Using cloudflared ${version} for ${platform.os}/${platform.arch}`);
 
-  const binaryPath = await installCloudflared(version, platform);
+  // Allow a missing sha256 sidecar only when the user explicitly requested
+  // "latest" — pinned versions must verify or fail closed.
+  const binaryPath = await installCloudflared(version, platform, {
+    allowMissingSidecar: requestedLatest,
+  });
 
   const spawned = await spawnConnector({
     binaryPath,

@@ -10,14 +10,24 @@ export interface CreateModeParams extends CommonInputs {
   readonly tunnelName: string;
 }
 
+export interface EnsuredTunnel {
+  readonly tunnelId: string;
+  readonly tunnelToken: string;
+  readonly created: boolean;
+}
+
 export interface CreateModeResult extends ConnectModeResult {
   readonly tunnelId: string;
   readonly tunnelToken: string;
 }
 
-export const runCreate = async (
+// Tunnel ensure is split out so callers can persist a rollback state file
+// immediately after the API succeeds, BEFORE the connector is spawned.
+// If anything later (binary install, spawn, healthy wait) throws, the
+// post-step still has enough information to delete the tunnel.
+export const ensureTunnel = async (
   params: CreateModeParams,
-): Promise<CreateModeResult> => {
+): Promise<EnsuredTunnel> => {
   const client = new CloudflareTunnelsClient({
     accountId: params.accountId,
     managementToken: params.apiToken,
@@ -35,18 +45,25 @@ export const runCreate = async (
   const tunnelToken = await client.getToken(tunnel.id);
   registerSecret(tunnelToken);
 
+  return { tunnelId: tunnel.id, tunnelToken, created: !found };
+};
+
+export const runCreate = async (
+  params: CreateModeParams,
+  ensured: EnsuredTunnel,
+): Promise<CreateModeResult> => {
   const connectResult = await runConnect({
     cloudflaredVersion: params.cloudflaredVersion,
     loglevel: params.loglevel,
     metrics: params.metrics,
     waitForConnections: params.waitForConnections,
     waitTimeoutSeconds: params.waitTimeoutSeconds,
-    tunnelToken,
+    tunnelToken: ensured.tunnelToken,
   });
 
   return {
     ...connectResult,
-    tunnelId: tunnel.id,
-    tunnelToken,
+    tunnelId: ensured.tunnelId,
+    tunnelToken: ensured.tunnelToken,
   };
 };

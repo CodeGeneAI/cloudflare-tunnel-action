@@ -10,40 +10,159 @@ on:
 permissions:
   contents: read
 
+env:
+  CANONICAL_REPO: CodeGeneAI/cloudflare-tunnel-action
+
 jobs:
+  # Skip on forked PRs because GitHub does not pass repo secrets to fork
+  # workflow runs (and we shouldn't leak them via pull_request_target).
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      run-self-test: ${{ steps.guard.outputs.run-self-test }}
+    steps:
+      - id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "Skipping self-test for forked PR."
+            echo "run-self-test=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run-self-test=true" >> "$GITHUB_OUTPUT"
+          fi
+
   test-connect:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
+    if: needs.guard.outputs.run-self-test == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Cover Linux x64, Linux arm64, macOS arm64 (default for macos-latest),
+        # and macOS x64 (macos-13). Updates here keep the README's "Supported
+        # platforms" claim honest.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./
+
+      - name: Require self-test secrets in canonical repo
+        if: github.repository == env.CANONICAL_REPO
+        env:
+          TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::SELF_TEST_TUNNEL_TOKEN is not set in $CANONICAL_REPO. Set the org-level secret to keep this workflow meaningful."
+            exit 1
+          fi
+
+      - id: tunnel
+        uses: ./
         with:
           mode: connect
           tunnel-token: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
           wait-for-connections: "true"
-        if: env.SELF_TEST_TUNNEL_TOKEN != ''
         env:
-          SELF_TEST_TUNNEL_TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+          ACTIONS_STEP_DEBUG: "true"
+
+      - name: Probe private origin via tunnel
+        if: env.PROBE_URL != ''
+        env:
+          PROBE_URL: ${{ secrets.SELF_TEST_PROBE_URL }}
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 10 "$PROBE_URL"; then
+              echo "::notice::Probe succeeded on attempt $i."
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Probe never succeeded against $PROBE_URL via the tunnel."
+          exit 1
+
+      - name: Verify the connector log contains no token leak
+        env:
+          TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          leaked=0
+          for f in "$RUNNER_TEMP"/cloudflared-*.log; do
+            if grep -F -q -- "$TOKEN" "$f"; then
+              echo "::error::Connector log $f appears to contain the SELF_TEST_TUNNEL_TOKEN."
+              leaked=1
+            fi
+          done
+          exit "$leaked"
 
   test-create:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
+    if: needs.guard.outputs.run-self-test == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Require self-test secrets in canonical repo
+        if: github.repository == env.CANONICAL_REPO
+        env:
+          API: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+          ACCT: ${{ secrets.SELF_TEST_CF_ACCOUNT_ID }}
+        run: |
+          if [ -z "$API" ] || [ -z "$ACCT" ]; then
+            echo "::error::SELF_TEST_CF_API_TOKEN and SELF_TEST_CF_ACCOUNT_ID must be set in $CANONICAL_REPO."
+            exit 1
+          fi
+
       - id: tunnel
         uses: ./
         with:
           mode: create
           api-token: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
           account-id: ${{ secrets.SELF_TEST_CF_ACCOUNT_ID }}
-          tunnel-name: gh-self-test-${{ github.run_id }}-${{ github.run_attempt }}
-        if: env.SELF_TEST_CF_API_TOKEN != ''
-        env:
-          SELF_TEST_CF_API_TOKEN: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+          tunnel-name: gh-self-test-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          cleanup-on-exit: "true"
+
       - name: Show tunnel CNAME
         if: steps.tunnel.outputs.tunnel-cname != ''
         run: echo "Tunnel CNAME ${{ steps.tunnel.outputs.tunnel-cname }}"
+
+      - name: Assert tunnel exists mid-job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+          ACCT: ${{ secrets.SELF_TEST_CF_ACCOUNT_ID }}
+          NAME: gh-self-test-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          count=$(curl --fail --silent \
+            -H "Authorization: Bearer $API" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/cfd_tunnel?name=$NAME&is_deleted=false" \
+            | jq '.result | length')
+          echo "Cloudflare reports $count tunnel(s) named $NAME."
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Expected at least one tunnel named $NAME mid-job."
+            exit 1
+          fi
+
+  # Runs after test-create completes — by that point the post-step has run
+  # and the tunnel must be deleted from Cloudflare.
+  verify-create-cleanup:
+    needs: test-create
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert tunnel deleted in post-step
+        env:
+          API: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+          ACCT: ${{ secrets.SELF_TEST_CF_ACCOUNT_ID }}
+          NAME: gh-self-test-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          count=$(curl --fail --silent \
+            -H "Authorization: Bearer $API" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/cfd_tunnel?name=$NAME&is_deleted=false" \
+            | jq '.result | length')
+          echo "Post-step left $count live tunnel(s) named $NAME."
+          if [ "$count" -ne 0 ]; then
+            echo "::error::Tunnel $NAME was not cleaned up by the post-step."
+            exit 1
+          fi

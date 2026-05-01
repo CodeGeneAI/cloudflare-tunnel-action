@@ -1,63 +1,34 @@
 import * as core from "@actions/core";
+import { tailLog } from "./cloudflared/run";
 import { parseInputs } from "./inputs";
-import { runConnect } from "./modes/connect";
-import { runCreate } from "./modes/create";
-import { type ConnectorState, writeState } from "./state";
-
-const API_TOKEN_ENV_VAR = "INPUT_API-TOKEN";
-
-const tunnelCname = (tunnelId: string | null): string | null =>
-  tunnelId ? `${tunnelId}.cfargotunnel.com` : null;
-
-const setOutputs = (state: ConnectorState, tunnelToken: string): void => {
-  if (state.tunnelId) core.setOutput("tunnel-id", state.tunnelId);
-  if (state.tunnelCname) core.setOutput("tunnel-cname", state.tunnelCname);
-  if (tunnelToken) core.setOutput("tunnel-token", tunnelToken);
-  core.setOutput("metrics-url", state.metricsUrl);
-};
+import { dispatch } from "./modes/runner";
+import { readState } from "./state";
+import * as log from "./util/log";
 
 const main = async (): Promise<void> => {
   const inputs = parseInputs();
-
-  if (inputs.mode === "connect") {
-    const result = await runConnect(inputs);
-    const state: ConnectorState = {
-      schemaVersion: 1,
-      mode: "connect",
-      pid: result.pid,
-      binaryPath: result.binaryPath,
-      metricsUrl: result.metricsUrl,
-      logFile: result.logFile,
-      tunnelId: result.tunnelId,
-      tunnelCname: tunnelCname(result.tunnelId),
-      cleanup: { enabled: false },
-    };
-    writeState(state);
-    setOutputs(state, inputs.tunnelToken);
-    return;
-  }
-
-  const result = await runCreate(inputs);
-  const state: ConnectorState = {
-    schemaVersion: 1,
-    mode: "create",
-    pid: result.pid,
-    binaryPath: result.binaryPath,
-    metricsUrl: result.metricsUrl,
-    logFile: result.logFile,
-    tunnelId: result.tunnelId,
-    tunnelCname: tunnelCname(result.tunnelId),
-    cleanup: {
-      enabled: inputs.cleanupOnExit,
-      accountId: inputs.accountId,
-      apiTokenEnvVar: API_TOKEN_ENV_VAR,
-    },
-  };
-  writeState(state);
-  setOutputs(state, result.tunnelToken);
+  await dispatch(inputs);
 };
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
+  // Surface the cloudflared log tail (if any) so a user debugging a metrics
+  // timeout or unhealthy connection sees the connector's own diagnostics
+  // alongside our error message. The post step will also tail on cleanup,
+  // but it relies on state — and we may have failed before writing state.
+  // Tolerate readState throwing (e.g. RUNNER_TEMP unset off-runner).
+  try {
+    const state = readState();
+    if (state?.logFile) {
+      const tail = tailLog(state.logFile, 50);
+      if (tail.length > 0) {
+        core.startGroup("cloudflared (last 50 log lines)");
+        log.info(tail);
+        core.endGroup();
+      }
+    }
+  } catch {
+    /* best-effort: log tail is informational only */
+  }
   core.setFailed(message);
 });

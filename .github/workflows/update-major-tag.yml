@@ -14,17 +14,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-      - name: Move major-version tag
+      - name: Move floating major and minor tags
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
             echo "Skipping non-semver release tag: $RELEASE_TAG"
             exit 0
           fi
           MAJOR="v${BASH_REMATCH[1]}"
+          MINOR="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f "$MAJOR" "$RELEASE_TAG"
-          git push origin "$MAJOR" --force
+          git tag -f "$MINOR" "$RELEASE_TAG"
+          git push origin "$MAJOR" "$MINOR" --force

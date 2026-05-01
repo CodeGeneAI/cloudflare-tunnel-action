@@ -17,7 +17,17 @@ export interface SpawnConnectorResult {
   readonly logFile: string;
 }
 
-const METRICS_RE = /metrics server on (\d{1,3}(?:\.\d{1,3}){3}:\d+)/i;
+// Tolerates the variants we've seen in cloudflared's stderr across versions:
+//   "Starting metrics server on 127.0.0.1:NNN/metrics"
+//   "Starting metrics server on [::1]:NNN/metrics"
+//   "metrics server on tcp://127.0.0.1:NNN"
+// The capture group is whatever address sits between "on" and "/metrics" (or end of line).
+const METRICS_RE = /metrics server on (?:tcp:\/\/)?(\S+?)(?:\/metrics|\s|$)/i;
+
+export const parseMetricsAddress = (logContents: string): string | null => {
+  const match = logContents.match(METRICS_RE);
+  return match?.[1] ?? null;
+};
 
 const waitForMetricsAddress = async (
   logFile: string,
@@ -26,14 +36,13 @@ const waitForMetricsAddress = async (
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(logFile)) {
-      const contents = fs.readFileSync(logFile, "utf8");
-      const match = contents.match(METRICS_RE);
-      if (match?.[1]) return match[1];
+      const address = parseMetricsAddress(fs.readFileSync(logFile, "utf8"));
+      if (address) return address;
     }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(
-    `Timed out waiting for cloudflared to report a metrics address in ${logFile}`,
+    `Timed out waiting for cloudflared to report a metrics address. Last 50 lines of ${logFile}:\n${tailLog(logFile, 50)}`,
   );
 };
 
@@ -42,23 +51,29 @@ export const spawnConnector = async (
 ): Promise<SpawnConnectorResult> => {
   const runnerTemp = process.env.RUNNER_TEMP;
   if (!runnerTemp) throw new Error("RUNNER_TEMP is not set");
-  const logFile = path.join(runnerTemp, "cloudflared.log");
+  // Per-pid log file so two action invocations in the same job don't clobber each other.
+  const logFile = path.join(runnerTemp, `cloudflared-${process.pid}.log`);
 
   const fd = fs.openSync(logFile, "a");
+  // Global flags (--loglevel, --metrics) precede subcommands; that's the
+  // canonical cloudflared CLI ordering and the one used by the platform repo.
   const args = [
-    "tunnel",
-    "--no-autoupdate",
     "--loglevel",
     params.loglevel,
     "--metrics",
     params.metricsBind,
+    "tunnel",
+    "--no-autoupdate",
     "run",
     "--token",
     params.token,
   ];
 
   log.info(
-    `Spawning cloudflared (loglevel=${params.loglevel}, metrics=${params.metricsBind})`,
+    `Spawning cloudflared (loglevel=${params.loglevel}, metrics=${params.metricsBind}, pid-log=${logFile})`,
+  );
+  log.debug(
+    `spawn argv: ${[params.binaryPath, ...args.filter((a) => a !== params.token)].join(" ")} <token>`,
   );
 
   const child = spawn(params.binaryPath, args, {
@@ -69,13 +84,17 @@ export const spawnConnector = async (
 
   if (!child.pid) {
     fs.closeSync(fd);
-    throw new Error("Failed to spawn cloudflared (no pid)");
+    throw new Error(
+      `Failed to spawn cloudflared at ${params.binaryPath} (no pid returned)`,
+    );
   }
 
   child.unref();
   fs.closeSync(fd);
 
   const metricsAddress = await waitForMetricsAddress(logFile, 15_000);
+  // The address may be `127.0.0.1:NNN`, `[::1]:NNN`, or `[::]:NNN`.
+  // All three are valid host components in an http URL.
   const metricsUrl = `http://${metricsAddress}`;
 
   return { pid: child.pid, metricsUrl, logFile };

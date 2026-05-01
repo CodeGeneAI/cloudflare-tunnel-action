@@ -38,10 +38,22 @@ const downloadChecksum = async (
   }
 };
 
+export interface InstallOptions {
+  // When false (the default for pinned versions), a missing or unreadable
+  // .sha256 sidecar is a hard error. Set to true only for "latest" or when
+  // the user explicitly opts out of verification.
+  readonly allowMissingSidecar: boolean;
+}
+
 export const installCloudflared = async (
   version: string,
   platform: PlatformDescriptor,
+  options: InstallOptions,
 ): Promise<string> => {
+  log.debug(
+    `installCloudflared version=${version} arch=${platform.arch} asset=${platform.assetName} allowMissingSidecar=${options.allowMissingSidecar}`,
+  );
+
   const cached = tc.find(TOOL_NAME, version, platform.arch);
   if (cached.length > 0) {
     log.info(`cloudflared ${version} found in tool cache: ${cached}`);
@@ -57,13 +69,17 @@ export const installCloudflared = async (
     const actual = await sha256OfFile(downloaded);
     if (actual !== expected) {
       throw new Error(
-        `cloudflared sha256 mismatch: expected ${expected}, got ${actual}`,
+        `cloudflared sha256 mismatch for ${platform.assetName}@${version}: expected ${expected}, got ${actual}`,
       );
     }
-    log.info("cloudflared sha256 verified");
+    log.info(`cloudflared sha256 verified (${expected.slice(0, 12)}…)`);
+  } else if (!options.allowMissingSidecar) {
+    throw new Error(
+      `No sha256 sidecar published for ${platform.assetName}@${version} and binary verification is required for pinned versions. Pass cloudflared-version: "latest" to opt out, or report the missing sidecar to cloudflare/cloudflared.`,
+    );
   } else {
     log.warning(
-      `No sha256 sidecar published for ${platform.assetName}@${version}; proceeding without verification`,
+      `No sha256 sidecar published for ${platform.assetName}@${version}; proceeding without verification (allow-missing-sidecar mode).`,
     );
   }
 
@@ -73,13 +89,22 @@ export const installCloudflared = async (
   if (platform.needsExtract) {
     extractedDir = await tc.extractTar(downloaded);
     const candidates = fs.readdirSync(extractedDir);
-    const found = candidates.find((c) => c.startsWith("cloudflared"));
-    if (!found) {
+    const matches = candidates.filter((c) => c.startsWith("cloudflared"));
+    if (matches.length === 0) {
       throw new Error(
-        `cloudflared binary not found after extracting ${platform.assetName}`,
+        `cloudflared binary not found after extracting ${platform.assetName}. Directory contents: ${candidates.join(", ") || "(empty)"}`,
       );
     }
-    exeName = found;
+    if (matches.length > 1) {
+      throw new Error(
+        `Ambiguous cloudflared binary after extracting ${platform.assetName}; matched ${matches.length} candidates: ${matches.join(", ")}`,
+      );
+    }
+    const onlyMatch = matches[0];
+    if (!onlyMatch) {
+      throw new Error("unreachable: matches.length === 1 guaranteed above");
+    }
+    exeName = onlyMatch;
   } else {
     extractedDir = path.dirname(downloaded);
     fs.renameSync(downloaded, path.join(extractedDir, exeName));

@@ -1,13 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// All process-lifecycle fields are nullable because state is written
+// incrementally: in `create` mode we persist the tunnel-id immediately after
+// the API call, BEFORE the connector is spawned, so a crash in the install
+// or spawn path still leaves the post-step enough information to delete the
+// tunnel and avoid an orphan in Cloudflare.
 export interface ConnectorState {
   readonly schemaVersion: 1;
   readonly mode: "connect" | "create";
-  readonly pid: number;
-  readonly binaryPath: string;
-  readonly metricsUrl: string;
-  readonly logFile: string;
+  readonly pid: number | null;
+  readonly binaryPath: string | null;
+  readonly metricsUrl: string | null;
+  readonly logFile: string | null;
   readonly tunnelId: string | null;
   readonly tunnelCname: string | null;
   readonly cleanup: {

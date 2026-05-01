@@ -1,0 +1,53 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! For security issues, please use
+        [private vulnerability reporting](../security/advisories/new)
+        instead of this template.
+  - type: input
+    id: action-version
+    attributes:
+      label: Action version (tag or SHA)
+      placeholder: v1.2.3
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - connect
+        - create
+    validations:
+      required: true
+  - type: input
+    id: runner
+    attributes:
+      label: Runner OS / arch
+      placeholder: ubuntu-latest x64
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Minimal workflow snippet
+      description: The smallest YAML that reproduces the issue. Redact secrets.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log output
+      description: Re-run with `loglevel: debug` if you can and paste the cloudflared tail.
+      render: shell
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
