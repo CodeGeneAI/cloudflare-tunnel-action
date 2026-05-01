@@ -162,6 +162,21 @@ jobs share one tunnel — and the first post-step to run deletes it out
 from under the other. Use `gh-${{ github.run_id }}-${{ github.run_attempt }}`
 or `gh-${{ github.repository_id }}-${{ github.run_id }}-${{ matrix.shard }}`.
 
+**Hitting the GitHub releases rate limit when `cloudflared-version: latest`**
+The action authenticates the lookup with the runner's `GITHUB_TOKEN` when
+it is exported to the step. On a busy self-hosted runner pool sharing
+egress IPs, expose the token explicitly:
+
+```yaml
+- uses: CodeGeneAI/cloudflare-tunnel-action@v1
+  with:
+    cloudflared-version: latest
+  env:
+    GITHUB_TOKEN: ${{ github.token }}
+```
+
+The action retries once on a 403/429 before failing.
+
 **Probing `/ready` from a downstream step**
 The action publishes `metrics-url` so a follow-up step can
 `curl --fail "${{ steps.tunnel.outputs.metrics-url }}/ready"` for

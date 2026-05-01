@@ -2,7 +2,7 @@ import * as core from "@actions/core";
 import { CloudflareTunnelsClient } from "./cloudflare/api";
 import { deleteTunnelWithRetry } from "./cloudflare/delete-with-retry";
 import { tailLog } from "./cloudflared/run";
-import { type ConnectorState, clearState, readState } from "./state";
+import { type ConnectorState, clearState, readAllStates } from "./state";
 import * as log from "./util/log";
 import { registerSecret } from "./util/log";
 import { sleep } from "./util/sleep";
@@ -77,13 +77,10 @@ const cleanupTunnel = async (state: ConnectorState): Promise<void> => {
   await deleteTunnelWithRetry(client, state.tunnelId);
 };
 
-const main = async (): Promise<void> => {
-  const state = readState();
-  if (!state) {
-    log.info("No cloudflared state file found; nothing to clean up");
-    return;
-  }
-
+const cleanupOne = async (
+  file: string,
+  state: ConnectorState,
+): Promise<void> => {
   if (state.pid !== null) {
     try {
       await terminate(state.pid);
@@ -109,13 +106,25 @@ const main = async (): Promise<void> => {
   if (state.logFile) {
     const tail = tailLog(state.logFile, 50);
     if (tail.length > 0) {
-      core.startGroup("cloudflared (last 50 log lines)");
+      core.startGroup(`cloudflared log tail (${state.logFile})`);
       log.info(tail);
       core.endGroup();
     }
   }
 
-  clearState();
+  clearState(file);
+};
+
+const main = async (): Promise<void> => {
+  const states = readAllStates();
+  if (states.length === 0) {
+    log.info("No cloudflared state files found; nothing to clean up");
+    return;
+  }
+  log.info(`Cleaning up ${states.length} cloudflared invocation(s)`);
+  for (const { file, state } of states) {
+    await cleanupOne(file, state);
+  }
 };
 
 main().catch((error: unknown) => {

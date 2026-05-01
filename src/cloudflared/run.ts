@@ -104,8 +104,22 @@ export const spawnConnector = async (
 
   child.unref();
   fs.closeSync(fd);
+  const pid = child.pid;
 
-  const rawMetricsAddress = await waitForMetricsAddress(logFile, 15_000);
+  // If the metrics line never appears the spawned process is orphaned: the
+  // call site has no pid, so the post-step has nothing to SIGTERM. Reap the
+  // child here before re-throwing so we never leak a dangling cloudflared.
+  let rawMetricsAddress: string;
+  try {
+    rawMetricsAddress = await waitForMetricsAddress(logFile, 15_000);
+  } catch (e) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already dead — fine */
+    }
+    throw e;
+  }
   const metricsAddress = normalizeReachableAddress(rawMetricsAddress);
   if (metricsAddress !== rawMetricsAddress) {
     log.debug(

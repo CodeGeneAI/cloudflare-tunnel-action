@@ -10,8 +10,12 @@ const NPM_REGISTRY = "https://registry.npmjs.org";
 const CLOUDFLARED_RELEASES =
   "https://api.github.com/repos/cloudflare/cloudflared/releases/latest";
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 const fetchLatestNpm = async (name: string): Promise<string> => {
-  const response = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(name)}`);
+  const response = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(name)}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`npm ${name}: HTTP ${response.status}`);
   }
@@ -28,7 +32,10 @@ const fetchLatestCloudflared = async (): Promise<string> => {
   };
   const ghToken = process.env.GITHUB_TOKEN;
   if (ghToken) headers.Authorization = `Bearer ${ghToken}`;
-  const response = await fetch(CLOUDFLARED_RELEASES, { headers });
+  const response = await fetch(CLOUDFLARED_RELEASES, {
+    headers,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`cloudflared releases: HTTP ${response.status}`);
   }

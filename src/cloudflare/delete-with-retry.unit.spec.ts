@@ -61,7 +61,11 @@ const serverError = () =>
     ),
   );
 
-const fastPolicy = { maxAttempts: 3, delayMs: 1 } as const;
+const fastPolicy = {
+  maxAttempts: 3,
+  delayMs: 1,
+  maxTotalMs: 60_000,
+} as const;
 
 describe("deleteTunnelWithRetry", () => {
   test("succeeds on first try", async () => {
@@ -114,6 +118,18 @@ describe("deleteTunnelWithRetry", () => {
     await expect(
       deleteTunnelWithRetry(client, "t-1", fastPolicy),
     ).rejects.toBeInstanceOf(CloudflareApiError);
+  });
+
+  test("returns gracefully when total budget is exceeded", async () => {
+    const client = makeClient([
+      activeConnectionsError,
+      okEmpty,
+      activeConnectionsError,
+    ]);
+    const tinyBudget = { maxAttempts: 12, delayMs: 50, maxTotalMs: 1 } as const;
+    await expect(
+      deleteTunnelWithRetry(client, "t-1", tinyBudget),
+    ).resolves.toBeUndefined();
   });
 
   test("does not retry on non-retryable 4xx", async () => {

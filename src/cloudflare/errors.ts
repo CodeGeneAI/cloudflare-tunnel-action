@@ -42,12 +42,50 @@ export const isCloudflareTunnelActiveConnectionsError = (
 export const isCloudflareNotFoundError = (error: unknown): boolean =>
   error instanceof CloudflareApiError && error.status === 404;
 
-// Retryable transient failures: 5xx from Cloudflare's edge, 429 rate-limits,
-// and any non-API error (most commonly network blips: ECONNRESET, ENOTFOUND,
-// fetch-failed, AbortError).
+// Allow-list of transient network failures we are willing to retry. Anything
+// outside this list (TypeError from a programming bug, JSON parse error, etc.)
+// must surface as a hard failure rather than getting swallowed by a 12-attempt
+// loop that masks the real defect.
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EPIPE",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+const RETRYABLE_NETWORK_NAMES = new Set([
+  "AbortError",
+  "TimeoutError",
+  "FetchError",
+]);
+
+const errorCode = (error: Error): string | undefined => {
+  // node-fetch / undici expose the wire-level error as `cause.code`.
+  const errAny = error as { code?: unknown; cause?: { code?: unknown } };
+  if (typeof errAny.code === "string") return errAny.code;
+  if (typeof errAny.cause?.code === "string") return errAny.cause.code;
+  return undefined;
+};
+
+// Retryable transient failures: 5xx / 429 from Cloudflare's edge, plus a
+// curated set of network-y plain-Error shapes (timeouts, aborts, connection
+// resets). Programming bugs (TypeError, RangeError, etc.) are intentionally
+// NOT retried — the retry loop must not mask defects.
 export const isRetryableTransientError = (error: unknown): boolean => {
   if (error instanceof CloudflareApiError) {
     return error.status >= 500 || error.status === 429;
   }
-  return error instanceof Error;
+  if (!(error instanceof Error)) return false;
+  if (RETRYABLE_NETWORK_NAMES.has(error.name)) return true;
+  const code = errorCode(error);
+  if (code && RETRYABLE_NETWORK_CODES.has(code)) return true;
+  // Last resort: undici / Bun fetch sometimes throws a generic Error with
+  // message "fetch failed" (no code on the outer error). Match conservatively.
+  return /fetch failed|network error|socket hang up/i.test(error.message);
 };

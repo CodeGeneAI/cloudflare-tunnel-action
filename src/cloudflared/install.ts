@@ -56,8 +56,34 @@ export const installCloudflared = async (
 
   const cached = tc.find(TOOL_NAME, version, platform.arch);
   if (cached.length > 0) {
-    log.info(`cloudflared ${version} found in tool cache: ${cached}`);
-    return path.join(cached, `cloudflared${platform.exeSuffix}`);
+    const cachedBinary = path.join(cached, `cloudflared${platform.exeSuffix}`);
+    // Re-verify on cache hit so a poisoned tool-cache (persistent self-hosted
+    // runners with shared caches, or a previous run that bypassed sha256
+    // verification via `latest` mode) cannot serve an unverified binary.
+    const expectedHash = await downloadChecksum(version, platform.assetName);
+    if (expectedHash) {
+      const actualHash = await sha256OfFile(cachedBinary);
+      if (actualHash !== expectedHash) {
+        log.warning(
+          `Cached cloudflared ${version} fails sha256 verification (expected ${expectedHash}, got ${actualHash}); re-downloading.`,
+        );
+        // Fall through to the download path below by skipping the early return.
+      } else {
+        log.info(
+          `cloudflared ${version} found in tool cache (sha256 verified): ${cached}`,
+        );
+        return cachedBinary;
+      }
+    } else if (options.allowMissingSidecar) {
+      log.info(
+        `cloudflared ${version} found in tool cache: ${cached} (sidecar unavailable, cache served as-is in latest mode).`,
+      );
+      return cachedBinary;
+    } else {
+      log.warning(
+        `Cached cloudflared ${version} cannot be re-verified (no sidecar); re-downloading to fail-closed.`,
+      );
+    }
   }
 
   const assetUrl = `${RELEASE_BASE}/${version}/${platform.assetName}`;

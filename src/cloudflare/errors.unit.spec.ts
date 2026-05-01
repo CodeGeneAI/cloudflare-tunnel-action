@@ -59,8 +59,38 @@ describe("isRetryableTransientError", () => {
     expect(isRetryableTransientError(makeApiError(404))).toBe(false);
   });
 
-  test("matches plain Error (network/unknown failures)", () => {
-    expect(isRetryableTransientError(new Error("ECONNRESET"))).toBe(true);
+  test("matches Error with retryable network code", () => {
+    const e = new Error("connection reset");
+    (e as Error & { code: string }).code = "ECONNRESET";
+    expect(isRetryableTransientError(e)).toBe(true);
+  });
+
+  test("matches Error with retryable cause.code (undici-shaped)", () => {
+    const e = new Error("fetch failed");
+    (e as Error & { cause: { code: string } }).cause = {
+      code: "UND_ERR_SOCKET",
+    };
+    expect(isRetryableTransientError(e)).toBe(true);
+  });
+
+  test("matches AbortError by name", () => {
+    const e = new Error("aborted");
+    e.name = "AbortError";
+    expect(isRetryableTransientError(e)).toBe(true);
+  });
+
+  test('matches generic "fetch failed" message', () => {
+    expect(isRetryableTransientError(new Error("fetch failed"))).toBe(true);
+  });
+
+  test("does NOT match TypeError (programming bug must surface)", () => {
+    expect(
+      isRetryableTransientError(new TypeError("x is not a function")),
+    ).toBe(false);
+  });
+
+  test("does NOT match a generic message-less Error", () => {
+    expect(isRetryableTransientError(new Error("oops"))).toBe(false);
   });
 
   test("does not match non-Error values", () => {
