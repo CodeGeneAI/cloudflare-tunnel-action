@@ -28,7 +28,10 @@ export const decodeTunnelIdFromToken = (token: string): string | null => {
     if (!payloadB64) return null;
     // Cloudflare connector tokens (and JWT payloads) are base64url-encoded —
     // `-` and `_` instead of `+` and `/`, with optional padding. Translate
-    // back to standard base64 before handing to Buffer.
+    // back to standard base64 before handing to Buffer. Node's
+    // Buffer.from('base64') happens to accept the URL-safe alphabet
+    // already, so this is defensive: it keeps the function correct under
+    // a stricter decoder (atob, a polyfill, a future runtime change).
     const standard = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     const padded = standard.padEnd(
       standard.length + ((4 - (standard.length % 4)) % 4),
