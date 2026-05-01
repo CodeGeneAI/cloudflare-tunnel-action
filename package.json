@@ -1,0 +1,31 @@
+{
+  "name": "@codegeneai/cloudflare-tunnel-action",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Run a cloudflared connector on a GitHub Actions runner.",
+  "license": "MIT",
+  "author": "CodeGeneAI",
+  "engines": {
+    "bun": ">=1.3.13"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --outfile=dist/index.js --minify && bun build src/post.ts --target=node --outfile=dist/post.js --minify",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "bun test src",
+    "verify-dist": "bun run build && git diff --exit-code -- dist/",
+    "check-versions": "bun run scripts/check-versions.ts"
+  },
+  "dependencies": {
+    "@actions/cache": "^6.0.0",
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "@actions/tool-cache": "^4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
+    "@types/bun": "^1.3.13",
+    "typescript": "^6.0.3"
+  }
+}

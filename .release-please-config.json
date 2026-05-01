@@ -1,0 +1,20 @@
+{
+  "release-type": "node",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": false,
+  "packages": {
+    ".": {
+      "package-name": "cloudflare-tunnel-action"
+    }
+  },
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "deps", "section": "Dependencies" },
+    { "type": "docs", "section": "Documentation", "hidden": false },
+    { "type": "refactor", "section": "Refactor", "hidden": true },
+    { "type": "chore", "section": "Chore", "hidden": true }
+  ]
+}

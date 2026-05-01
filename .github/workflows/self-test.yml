@@ -1,0 +1,49 @@
+name: self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  test-connect:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./
+        with:
+          mode: connect
+          tunnel-token: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+          wait-for-connections: "true"
+        if: env.SELF_TEST_TUNNEL_TOKEN != ''
+        env:
+          SELF_TEST_TUNNEL_TOKEN: ${{ secrets.SELF_TEST_TUNNEL_TOKEN }}
+
+  test-create:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: tunnel
+        uses: ./
+        with:
+          mode: create
+          api-token: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+          account-id: ${{ secrets.SELF_TEST_CF_ACCOUNT_ID }}
+          tunnel-name: gh-self-test-${{ github.run_id }}-${{ github.run_attempt }}
+        if: env.SELF_TEST_CF_API_TOKEN != ''
+        env:
+          SELF_TEST_CF_API_TOKEN: ${{ secrets.SELF_TEST_CF_API_TOKEN }}
+      - name: Show tunnel CNAME
+        if: steps.tunnel.outputs.tunnel-cname != ''
+        run: echo "Tunnel CNAME ${{ steps.tunnel.outputs.tunnel-cname }}"

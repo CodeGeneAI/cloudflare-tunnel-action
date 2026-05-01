@@ -1,0 +1,113 @@
+import * as core from "@actions/core";
+import { CloudflareTunnelsClient } from "./cloudflare/api";
+import { deleteTunnelWithRetry } from "./cloudflare/delete-with-retry";
+import { tailLog } from "./cloudflared/run";
+import { type ConnectorState, clearState, readState } from "./state";
+import * as log from "./util/log";
+import { sleep } from "./util/sleep";
+
+const SIGTERM_DRAIN_MS = 30_000;
+const POLL_INTERVAL_MS = 250;
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const terminate = async (pid: number): Promise<void> => {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ESRCH") return;
+    throw e;
+  }
+
+  const deadline = Date.now() + SIGTERM_DRAIN_MS;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return;
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  log.warning(
+    `cloudflared (pid ${pid}) did not exit within drain window; SIGKILL`,
+  );
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    /* ignore */
+  }
+};
+
+const cleanupTunnel = async (state: ConnectorState): Promise<void> => {
+  if (state.mode !== "create" || !state.cleanup.enabled) return;
+  if (
+    !state.tunnelId ||
+    !state.cleanup.accountId ||
+    !state.cleanup.apiTokenEnvVar
+  ) {
+    log.warning(
+      "State is missing fields required for tunnel deletion; skipping",
+    );
+    return;
+  }
+
+  const apiToken = process.env[state.cleanup.apiTokenEnvVar];
+  if (!apiToken || apiToken.length === 0) {
+    log.warning(
+      `API token env var "${state.cleanup.apiTokenEnvVar}" is unset; cannot delete tunnel ${state.tunnelId}`,
+    );
+    return;
+  }
+
+  const client = new CloudflareTunnelsClient({
+    accountId: state.cleanup.accountId,
+    managementToken: apiToken,
+  });
+
+  log.info(`Deleting tunnel ${state.tunnelId}`);
+  await deleteTunnelWithRetry(client, state.tunnelId);
+};
+
+const main = async (): Promise<void> => {
+  const state = readState();
+  if (!state) {
+    log.info("No cloudflared state file found; nothing to clean up");
+    return;
+  }
+
+  try {
+    await terminate(state.pid);
+  } catch (e) {
+    log.warning(
+      `Failed to terminate cloudflared (pid ${state.pid}): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  try {
+    await cleanupTunnel(state);
+  } catch (e) {
+    log.warning(
+      `Tunnel cleanup failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  if (state.logFile) {
+    const tail = tailLog(state.logFile, 50);
+    if (tail.length > 0) {
+      core.startGroup("cloudflared (last 50 log lines)");
+      core.info(tail);
+      core.endGroup();
+    }
+  }
+
+  clearState();
+};
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  core.warning(`Post-step error: ${message}`);
+});

@@ -1,0 +1,67 @@
+name: "Cloudflare Tunnel"
+description: "Run a cloudflared connector on a GitHub Actions runner. Supports attaching to an existing tunnel via token, or creating an ephemeral named tunnel via the Cloudflare API."
+author: "CodeGeneAI"
+branding:
+  icon: "cloud"
+  color: "orange"
+
+inputs:
+  mode:
+    description: '"connect" (use existing tunnel-token) or "create" (create ephemeral tunnel via API).'
+    required: false
+    default: "connect"
+
+  tunnel-token:
+    description: "Connector token for an existing tunnel. Required when mode=connect."
+    required: false
+
+  api-token:
+    description: "Cloudflare API token with Account: Cloudflare Tunnel: Edit scope. Required when mode=create."
+    required: false
+  account-id:
+    description: "Cloudflare account ID. Required when mode=create."
+    required: false
+  tunnel-name:
+    description: "Name for the ephemeral tunnel. Required when mode=create."
+    required: false
+  cleanup-on-exit:
+    description: "When mode=create, delete the tunnel in the post-step."
+    required: false
+    default: "true"
+
+  cloudflared-version:
+    description: 'cloudflared release tag (e.g. "2026.3.0") or "latest".'
+    required: false
+    default: "latest"
+  loglevel:
+    description: "cloudflared --loglevel (debug|info|warn|error|fatal)."
+    required: false
+    default: "info"
+  metrics:
+    description: "Bind address for cloudflared --metrics. localhost:0 picks a free port."
+    required: false
+    default: "localhost:0"
+  wait-for-connections:
+    description: "Block until the connector reports at least one healthy edge connection."
+    required: false
+    default: "true"
+  wait-timeout-seconds:
+    description: "Maximum seconds to wait for a healthy connection."
+    required: false
+    default: "60"
+
+outputs:
+  tunnel-id:
+    description: "The Cloudflare tunnel ID (UUID). Always set in mode=create; best-effort decode in mode=connect."
+  tunnel-cname:
+    description: "The tunnel CNAME target: {tunnel-id}.cfargotunnel.com."
+  tunnel-token:
+    description: "Connector token (masked). In mode=create this is the freshly fetched token; in mode=connect it echoes the input."
+  metrics-url:
+    description: "Resolved cloudflared metrics URL."
+
+runs:
+  using: "node24"
+  main: "dist/index.js"
+  post: "dist/post.js"
+  post-if: "always()"
