@@ -9,7 +9,7 @@
     "bun": ">=1.3.13"
   },
   "scripts": {
-    "build": "bun build src/main.ts --target=node --outfile=dist/index.js && bun build src/post.ts --target=node --outfile=dist/post.js",
+    "build": "bunx @vercel/ncc build src/main.ts -o dist --minify && bunx @vercel/ncc build src/post.ts -o dist-post --minify && mv dist-post/index.js dist/post.js && rm -rf dist-post",
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
     "@types/bun": "^1.3.13",
+    "@vercel/ncc": "^0.38.4",
     "typescript": "^6.0.3"
   }
 }
