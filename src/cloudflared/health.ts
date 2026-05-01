@@ -20,7 +20,10 @@ export const waitForHealthy = async (
   let lastError: string | null = null;
   while (Date.now() < deadline) {
     try {
-      const response = await fetchImpl(url, { method: "GET" });
+      const response = await fetchImpl(url, {
+        method: "GET",
+        signal: AbortSignal.timeout(intervalMs * 2),
+      });
       if (response.ok) {
         const body = (await response.json()) as { readyConnections?: unknown };
         if (

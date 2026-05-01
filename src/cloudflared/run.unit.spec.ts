@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { parseMetricsAddress, tailLog } from "./run";
+import { normalizeReachableAddress, parseMetricsAddress, tailLog } from "./run";
 
 describe("parseMetricsAddress", () => {
   test("matches IPv4 dotted-quad with /metrics suffix", () => {
@@ -39,6 +39,27 @@ describe("parseMetricsAddress", () => {
     const log =
       "Starting metrics server on 127.0.0.1:1111/metrics\nStarting metrics server on 127.0.0.1:2222/metrics\n";
     expect(parseMetricsAddress(log)).toBe("127.0.0.1:1111");
+  });
+});
+
+describe("normalizeReachableAddress", () => {
+  test("rewrites IPv6 unspecified to loopback", () => {
+    expect(normalizeReachableAddress("[::]:9876")).toBe("[::1]:9876");
+  });
+
+  test("rewrites IPv4 unspecified to loopback", () => {
+    expect(normalizeReachableAddress("0.0.0.0:9876")).toBe("127.0.0.1:9876");
+  });
+
+  test("leaves explicit loopbacks untouched", () => {
+    expect(normalizeReachableAddress("127.0.0.1:9876")).toBe("127.0.0.1:9876");
+    expect(normalizeReachableAddress("[::1]:9876")).toBe("[::1]:9876");
+  });
+
+  test("leaves arbitrary hosts untouched", () => {
+    expect(normalizeReachableAddress("example.internal:9876")).toBe(
+      "example.internal:9876",
+    );
   });
 });
 

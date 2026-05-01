@@ -22,6 +22,9 @@ interface CloudflareEnvelope<T> {
 }
 
 const DEFAULT_BASE_URL = "https://api.cloudflare.com/client/v4";
+// Cap individual API calls so a black-holed connection cannot wedge the
+// post-step until the runner's hard 10s grace expires.
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 const asRecord = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -80,6 +83,7 @@ export class CloudflareTunnelsClient {
         "Content-Type": "application/json",
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
     });
 
     const contentType = response.headers.get("content-type") ?? "";
@@ -105,12 +109,12 @@ export class CloudflareTunnelsClient {
   }
 
   async list(): Promise<readonly CloudflareTunnel[]> {
-    const result = await this.call<unknown>(
-      "GET",
-      `/accounts/${this.accountId}/cfd_tunnel?is_deleted=false`,
-    );
+    const path = `/accounts/${this.accountId}/cfd_tunnel?is_deleted=false`;
+    const result = await this.call<unknown>("GET", path);
     if (!Array.isArray(result)) {
-      throw new Error("Cloudflare tunnel list returned non-array result");
+      throw new Error(
+        `Cloudflare GET ${path} returned non-array result; expected a list of tunnels`,
+      );
     }
     return result.map(mapTunnel);
   }

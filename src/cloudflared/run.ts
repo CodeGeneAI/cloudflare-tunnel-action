@@ -21,12 +21,25 @@ export interface SpawnConnectorResult {
 //   "Starting metrics server on 127.0.0.1:NNN/metrics"
 //   "Starting metrics server on [::1]:NNN/metrics"
 //   "metrics server on tcp://127.0.0.1:NNN"
-// The capture group is whatever address sits between "on" and "/metrics" (or end of line).
+// The capture group is whatever address sits between "on" and "/metrics"
+// (or end of line).
 const METRICS_RE = /metrics server on (?:tcp:\/\/)?(\S+?)(?:\/metrics|\s|$)/i;
 
 export const parseMetricsAddress = (logContents: string): string | null => {
   const match = logContents.match(METRICS_RE);
   return match?.[1] ?? null;
+};
+
+// `0.0.0.0` and `[::]` are bind-only addresses that fetch cannot connect to.
+// cloudflared can emit either when given `--metrics localhost:0` on a
+// dual-stack runner, so normalize them to loopback before composing the URL.
+export const normalizeReachableAddress = (address: string): string => {
+  if (address.startsWith("[::]:"))
+    return `[::1]:${address.slice("[::]:".length)}`;
+  if (address.startsWith("0.0.0.0:")) {
+    return `127.0.0.1:${address.slice("0.0.0.0:".length)}`;
+  }
+  return address;
 };
 
 const waitForMetricsAddress = async (
@@ -92,9 +105,13 @@ export const spawnConnector = async (
   child.unref();
   fs.closeSync(fd);
 
-  const metricsAddress = await waitForMetricsAddress(logFile, 15_000);
-  // The address may be `127.0.0.1:NNN`, `[::1]:NNN`, or `[::]:NNN`.
-  // All three are valid host components in an http URL.
+  const rawMetricsAddress = await waitForMetricsAddress(logFile, 15_000);
+  const metricsAddress = normalizeReachableAddress(rawMetricsAddress);
+  if (metricsAddress !== rawMetricsAddress) {
+    log.debug(
+      `Normalized cloudflared metrics address ${rawMetricsAddress} → ${metricsAddress}`,
+    );
+  }
   const metricsUrl = `http://${metricsAddress}`;
 
   return { pid: child.pid, metricsUrl, logFile };

@@ -24,14 +24,51 @@ Out of scope:
 - The upstream `cloudflared` binary (report to <https://github.com/cloudflare/cloudflared>).
 - The Cloudflare API itself (report to Cloudflare via <https://hackerone.com/cloudflare>).
 
-## Secret handling
+## Threat model
 
-- `tunnel-token` and `api-token` inputs are masked via `core.setSecret()`
-  the moment they are read.
-- The masked `tunnel-token` output (in `mode=create`) is masked before
-  being set so downstream steps do not log it.
-- The on-disk state file at `$RUNNER_TEMP/cf-tunnel-state.json` records
-  only the env-var **name** that holds the API token, never the token
-  value.
-- The captured cloudflared log is checked by CI for accidental token
-  leakage.
+What this action defends:
+
+- **Token disclosure in logs.** `tunnel-token` and `api-token` are passed
+  to `core.setSecret()` the moment they are read so the runner-level mask
+  redacts them in every step's log output. The action's own redactor runs
+  on top with a minimum-length guard so short test values do not poison
+  output. Tokens are never serialized to the on-disk state file (only the
+  env-var name is). The captured cloudflared log is checked by CI for
+  literal token leakage.
+- **Connector-token re-use.** `tunnel-token` is intentionally **not** an
+  action output, even masked, because outputs flow into `GITHUB_OUTPUT`
+  where downstream steps that *transform* the value (base64, slice, hash)
+  defeat masking. If a downstream job needs the connector token, pass it
+  through `secrets:` rather than the workflow output store.
+- **Orphan tunnel after a job failure.** If `mode=create` is used and the
+  binary install or healthy-wait fails, a rollback state is persisted
+  before the spawn so the post-step still has enough information to
+  delete the tunnel via the API.
+
+What this action does **not** defend against:
+
+- **A malicious workflow YAML in the same repository.** Any other step in
+  the same job can read `$RUNNER_TEMP/cloudflared-*.log` and
+  `$RUNNER_TEMP/cf-tunnel-state.json`. The state file is created with
+  mode `0600`, but it lives on a runner that the workflow already trusts.
+  Treat the runner as a trust boundary — don't run untrusted code in the
+  same job that holds your tunnel token.
+- **API-token downgrade by setting `cleanup-on-exit: false`.** A
+  workflow author who controls the inputs can opt out of cleanup and
+  leave a long-lived tunnel under a chosen name. This is a feature, not
+  a bug — it's how operators preserve tunnels across CI runs.
+- **`pull_request_target` abuse.** This action is intentionally not
+  designed to be safe under `pull_request_target` — secrets exposed to
+  fork PRs that way can be exfiltrated by malicious diffs. The bundled
+  self-test workflow gates explicitly on
+  `head.repo.full_name == github.repository`.
+- **Compromised cloudflared release artifacts.** SHA-256 verification is
+  enforced when `cloudflared-version` is pinned; the verification is
+  best-effort soft-fail when `cloudflared-version: latest` is used and
+  the upstream `.sha256` sidecar is missing.
+
+## Reporting cadence
+
+We respond to acknowledged reports within 2 business days. High-severity
+fixes ship within 14 days; lower severity ride the next normal release
+cut.

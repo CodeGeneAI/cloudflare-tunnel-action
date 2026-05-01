@@ -29,12 +29,8 @@ jobs:
         with:
           bun-version: 1.3.13
       - run: bun install --frozen-lockfile
-      - name: Build dist
-        run: bun run build
       - name: Verify dist is up to date
-        run: |
-          if [ -n "$(git status --porcelain dist/)" ]; then
-            echo "::error::dist/ is out of date. Run 'bun run build' and commit the result."
-            git diff dist/
-            exit 1
-          fi
+        run: bun run verify-dist
+      - name: Show diff on failure
+        if: failure()
+        run: git diff dist/

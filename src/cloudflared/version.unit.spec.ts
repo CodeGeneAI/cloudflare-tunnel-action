@@ -38,10 +38,39 @@ describe("resolveVersion", () => {
     expect(await resolveVersion("", fetchImpl)).toBe("2026.4.1");
   });
 
-  test("throws when GitHub returns non-OK", async () => {
+  test("throws when GitHub returns non-rate-limit error", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response("server error", { status: 500 });
+    await expect(resolveVersion("latest", fetchImpl)).rejects.toThrow(/500/);
+  });
+
+  test("retries once on 403 rate-limit and then succeeds", async () => {
+    let calls = 0;
+    const fetchImpl: FetchLike = async () => {
+      calls += 1;
+      if (calls === 1) return new Response("forbidden", { status: 403 });
+      return ok({ tag_name: "2026.4.1" });
+    };
+    expect(
+      await resolveVersion("latest", {
+        fetchImpl,
+        rateLimitRetryDelayMs: 1,
+        rateLimitMaxAttempts: 2,
+      }),
+    ).toBe("2026.4.1");
+    expect(calls).toBe(2);
+  });
+
+  test("gives up after rate-limit max attempts", async () => {
     const fetchImpl: FetchLike = async () =>
       new Response("forbidden", { status: 403 });
-    await expect(resolveVersion("latest", fetchImpl)).rejects.toThrow(/403/);
+    await expect(
+      resolveVersion("latest", {
+        fetchImpl,
+        rateLimitRetryDelayMs: 1,
+        rateLimitMaxAttempts: 2,
+      }),
+    ).rejects.toThrow(/403/);
   });
 
   test("throws when tag_name missing from response", async () => {

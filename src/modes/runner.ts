@@ -2,13 +2,14 @@ import * as core from "@actions/core";
 import type { ActionInputs, ConnectInputs, CreateInputs } from "../inputs";
 import { type ConnectorState, writeState } from "../state";
 import * as log from "../util/log";
-import { runConnect } from "./connect";
-import { ensureTunnel, runCreate } from "./create";
+import { installAndSpawn, waitConnectorHealthy } from "./connect";
+import { ensureTunnel } from "./create";
 
-// Adding a new mode (e.g. `attach-replica`) means: extend the `mode` literal
-// in inputs.ts, write a new IModeRunner, and register it in MODE_RUNNERS.
-// No call site is modified. The discriminated-union exhaustiveness check
-// in main.ts ensures the compiler flags any registration gap.
+// Adding a new mode means: extend the `mode` literal in inputs.ts, write a
+// new IModeRunner, and add it to MODE_RUNNERS. The indexed-access type at
+// `dispatch` forces every mode literal to be present at compile time, so
+// the registry is the single extension axis — no switch statements grow
+// when new modes are added.
 export interface IModeRunner<I extends ActionInputs> {
   readonly id: I["mode"];
   run(inputs: I): Promise<void>;
@@ -48,20 +49,30 @@ const writeReadySummary = async (
 export const connectRunner: IModeRunner<ConnectInputs> = {
   id: "connect",
   async run(inputs) {
-    const result = await runConnect(inputs);
+    // 1) Install + spawn. Returns as soon as the connector reports a metrics
+    //    address — we have a pid even though the connection is not yet healthy.
+    const spawned = await installAndSpawn(inputs);
+
+    // 2) Persist state with the pid IMMEDIATELY so the post-step can SIGTERM
+    //    the spawned process even if the healthy-wait below times out.
     const state: ConnectorState = {
       schemaVersion: 1,
       mode: "connect",
-      pid: result.pid,
-      binaryPath: result.binaryPath,
-      metricsUrl: result.metricsUrl,
-      logFile: result.logFile,
-      tunnelId: result.tunnelId,
-      tunnelCname: tunnelCname(result.tunnelId),
+      pid: spawned.pid,
+      binaryPath: spawned.binaryPath,
+      metricsUrl: spawned.metricsUrl,
+      logFile: spawned.logFile,
+      tunnelId: spawned.tunnelId,
+      tunnelCname: tunnelCname(spawned.tunnelId),
       cleanup: { enabled: false },
     };
     writeState(state);
     setOutputs(state);
+
+    // 3) Optionally block until healthy. Throws on timeout, but the post-step
+    //    can still tear down because step 2 already wrote the pid.
+    await waitConnectorHealthy(inputs, spawned.metricsUrl);
+
     log.info(
       `Tunnel ready · mode=connect · id=${state.tunnelId ?? "?"} · cname=${state.tunnelCname ?? "?"} · pid=${state.pid}`,
     );
@@ -95,19 +106,41 @@ export const createRunner: IModeRunner<CreateInputs> = {
     };
     writeState(rollback);
 
-    // 3) Spawn the connector and wait for healthy.
-    const result = await runCreate(inputs, ensured);
+    // 3) Install + spawn the connector with the freshly-fetched token.
+    const spawned = await installAndSpawn({
+      cloudflaredVersion: inputs.cloudflaredVersion,
+      loglevel: inputs.loglevel,
+      metrics: inputs.metrics,
+      waitForConnections: inputs.waitForConnections,
+      waitTimeoutSeconds: inputs.waitTimeoutSeconds,
+      tunnelToken: ensured.tunnelToken,
+    });
 
-    // 4) Persist the full state so the post-step can SIGTERM the connector.
+    // 4) Persist the full state with the pid BEFORE the healthy-wait so a
+    //    healthy-wait timeout does not orphan the connector process.
     const state: ConnectorState = {
       ...rollback,
-      pid: result.pid,
-      binaryPath: result.binaryPath,
-      metricsUrl: result.metricsUrl,
-      logFile: result.logFile,
+      pid: spawned.pid,
+      binaryPath: spawned.binaryPath,
+      metricsUrl: spawned.metricsUrl,
+      logFile: spawned.logFile,
     };
     writeState(state);
     setOutputs(state);
+
+    // 5) Optional healthy-wait.
+    await waitConnectorHealthy(
+      {
+        cloudflaredVersion: inputs.cloudflaredVersion,
+        loglevel: inputs.loglevel,
+        metrics: inputs.metrics,
+        waitForConnections: inputs.waitForConnections,
+        waitTimeoutSeconds: inputs.waitTimeoutSeconds,
+        tunnelToken: ensured.tunnelToken,
+      },
+      spawned.metricsUrl,
+    );
+
     log.info(
       `Tunnel ready · mode=create · id=${state.tunnelId} · cname=${state.tunnelCname} · pid=${state.pid}`,
     );
@@ -116,28 +149,21 @@ export const createRunner: IModeRunner<CreateInputs> = {
 };
 
 // Type-level guarantee the registry covers every mode: the index type forces
-// each branch of the `mode` literal to be present, so adding a new mode is
-// a compile-time obligation rather than a runtime if/else edit.
+// each mode literal to be present, so adding a new mode is a compile-time
+// obligation rather than a runtime if/else edit.
 export const MODE_RUNNERS: {
-  connect: IModeRunner<ConnectInputs>;
-  create: IModeRunner<CreateInputs>;
+  readonly [M in ActionInputs["mode"]]: IModeRunner<
+    Extract<ActionInputs, { mode: M }>
+  >;
 } = {
   connect: connectRunner,
   create: createRunner,
 };
 
+// Indexed-access dispatch. The narrow type assertion is necessary because
+// TypeScript cannot prove the runtime mode matches the runner's input type
+// after the lookup, but the registry's indexed-access type guarantees it.
 export const dispatch = (inputs: ActionInputs): Promise<void> => {
-  switch (inputs.mode) {
-    case "connect":
-      return MODE_RUNNERS.connect.run(inputs);
-    case "create":
-      return MODE_RUNNERS.create.run(inputs);
-    default: {
-      // Exhaustiveness: TypeScript flags missing cases here at compile time.
-      const _exhaustive: never = inputs;
-      throw new Error(
-        `Unhandled mode in dispatch: ${(_exhaustive as ActionInputs).mode}`,
-      );
-    }
-  }
+  const runner = MODE_RUNNERS[inputs.mode] as IModeRunner<ActionInputs>;
+  return runner.run(inputs);
 };

@@ -167,16 +167,56 @@ The action publishes `metrics-url` so a follow-up step can
 `curl --fail "${{ steps.tunnel.outputs.metrics-url }}/ready"` for
 deeper assertions or to wait for additional connections.
 
-## Comparison
+## Comparison with peer actions
 
-| Capability | This action | `AnimMouse/setup-cloudflared` | `cloudflare/wrangler-action` |
-|---|---|---|---|
-| Install cloudflared | ✅ | ✅ | n/a |
-| Spawn + post-step teardown | ✅ | external | n/a |
-| Create ephemeral tunnel via API | ✅ | ❌ | n/a |
-| Active-connections retry | ✅ | n/a | n/a |
-| Healthy-connection wait | ✅ | ❌ | n/a |
-| SHA-256 binary verification | ✅ | ✅ | n/a |
+`cloudflare/wrangler-action` deploys Workers and Pages — it is the right
+tool for code deploys, but does not handle tunnels. The closest peer to
+this action is `AnimMouse/setup-cloudflared`, which installs and
+configures cloudflared but does not run it as a child process or manage
+the tunnel lifecycle.
+
+| Capability                          | This action | `AnimMouse/setup-cloudflared` |
+|-------------------------------------|-------------|-------------------------------|
+| Install cloudflared                 | ✅          | ✅                             |
+| Spawn + post-step teardown          | ✅          | external                      |
+| Create ephemeral tunnel via API     | ✅          | ❌                             |
+| Active-connections retry on cleanup | ✅          | n/a                           |
+| Healthy-connection wait             | ✅          | ❌                             |
+| SHA-256 binary verification         | ✅          | ✅                             |
+
+### Migrating from `AnimMouse/setup-cloudflared`
+
+If you used `AnimMouse/setup-cloudflared` to install the binary and a
+follow-up step to run `cloudflared tunnel run --token …`, replace both
+with one step in `connect` mode:
+
+```yaml
+# before
+- uses: AnimMouse/setup-cloudflared@v1
+  with:
+    cloudflared-version: 2026.3.0
+- run: |
+    cloudflared tunnel run --token "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" &
+    sleep 5
+
+# after
+- uses: CodeGeneAI/cloudflare-tunnel-action@v1
+  with:
+    mode: connect
+    tunnel-token: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+```
+
+You gain a real healthy-connection wait, automatic SIGTERM teardown on
+job exit, and (in `mode=create`) tunnel-lifecycle management.
+
+## Examples
+
+Runnable workflow snippets live in [`examples/`](./examples/):
+
+- [`examples/connect.yml`](./examples/connect.yml) — attach to an
+  existing tunnel and run E2E tests against a private origin.
+- [`examples/create.yml`](./examples/create.yml) — provision an
+  ephemeral tunnel per PR and pass its CNAME to downstream steps.
 
 ## Contributing
 

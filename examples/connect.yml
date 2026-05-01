@@ -1,0 +1,20 @@
+name: e2e-against-private-origin
+
+on:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Attach a connector to a long-lived tunnel; the runner can now
+      # resolve any host that the tunnel's ingress rules cover.
+      - uses: CodeGeneAI/cloudflare-tunnel-action@v1
+        with:
+          mode: connect
+          tunnel-token: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+
+      - run: curl --fail https://internal.example.com/health
+      - run: bun test:e2e --base-url https://internal.example.com

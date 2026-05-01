@@ -9,21 +9,39 @@ const jsonResponse = (status: number, body: unknown): Response =>
   });
 
 describe("waitForHealthy", () => {
-  test("returns when readyConnections >= 1", async () => {
+  test("returns when readyConnections >= 1 and probes /ready", async () => {
     let calls = 0;
-    const fetchImpl: FetchLike = async () => {
+    const calledUrls: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
       calls += 1;
+      calledUrls.push(url);
       return jsonResponse(200, { readyConnections: calls >= 2 ? 1 : 0 });
     };
     await expect(
       waitForHealthy({
-        metricsUrl: "http://127.0.0.1:0",
+        metricsUrl: "http://127.0.0.1:1234",
         timeoutSeconds: 2,
         intervalMs: 5,
         fetchImpl,
       }),
     ).resolves.toBeUndefined();
     expect(calls).toBeGreaterThanOrEqual(2);
+    expect(calledUrls[0]).toBe("http://127.0.0.1:1234/ready");
+  });
+
+  test("strips trailing slash before composing /ready", async () => {
+    let url = "";
+    const fetchImpl: FetchLike = async (u) => {
+      url = u;
+      return jsonResponse(200, { readyConnections: 1 });
+    };
+    await waitForHealthy({
+      metricsUrl: "http://127.0.0.1:1234/",
+      timeoutSeconds: 2,
+      intervalMs: 5,
+      fetchImpl,
+    });
+    expect(url).toBe("http://127.0.0.1:1234/ready");
   });
 
   test("times out when never healthy", async () => {

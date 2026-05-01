@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { parseInputs } from "./inputs";
+import { __resetSecretsForTesting } from "./util/log";
 
 const ENV_KEYS = [
   "INPUT_MODE",
@@ -20,8 +21,14 @@ const clearInputEnv = (): void => {
 };
 
 describe("parseInputs", () => {
-  beforeEach(clearInputEnv);
-  afterEach(clearInputEnv);
+  beforeEach(() => {
+    clearInputEnv();
+    __resetSecretsForTesting();
+  });
+  afterEach(() => {
+    clearInputEnv();
+    __resetSecretsForTesting();
+  });
 
   test("connect mode requires tunnel-token", () => {
     process.env.INPUT_MODE = "connect";
@@ -74,6 +81,19 @@ describe("parseInputs", () => {
   test("invalid mode throws", () => {
     process.env.INPUT_MODE = "weird";
     expect(() => parseInputs()).toThrow(/mode/);
+  });
+
+  test("mode is case-insensitive", () => {
+    process.env.INPUT_MODE = "CONNECT";
+    process.env["INPUT_TUNNEL-TOKEN"] = "abcdefghij";
+    expect(parseInputs().mode).toBe("connect");
+
+    delete process.env["INPUT_TUNNEL-TOKEN"];
+    process.env.INPUT_MODE = "Create";
+    process.env["INPUT_API-TOKEN"] = "tokenvalueabcdef";
+    process.env["INPUT_ACCOUNT-ID"] = "acc";
+    process.env["INPUT_TUNNEL-NAME"] = "name";
+    expect(parseInputs().mode).toBe("create");
   });
 
   test("invalid loglevel throws", () => {

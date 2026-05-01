@@ -1,0 +1,30 @@
+name: ephemeral-tunnel-per-pr
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Create a fresh tunnel for this run, attach to it, and tear it
+      # down on exit. `tunnel-name` MUST be unique per run (otherwise
+      # two parallel jobs collide on the same tunnel).
+      - id: tunnel
+        uses: CodeGeneAI/cloudflare-tunnel-action@v1
+        with:
+          mode: create
+          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          tunnel-name: gh-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Downstream consumers route via the tunnel CNAME. Pair this with a
+      # DNS CNAME or a Cloudflare Access policy that maps a public hostname
+      # at `${{ steps.tunnel.outputs.tunnel-cname }}`.
+      - run: echo "Tunnel CNAME: ${{ steps.tunnel.outputs.tunnel-cname }}"
+
+      # Optional: probe the connector's own health endpoint for richer
+      # diagnostics in CI logs.
+      - run: curl --fail "${{ steps.tunnel.outputs.metrics-url }}/ready"

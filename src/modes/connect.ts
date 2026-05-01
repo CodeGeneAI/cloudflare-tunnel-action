@@ -10,7 +10,7 @@ export interface ConnectModeParams extends CommonInputs {
   readonly tunnelToken: string;
 }
 
-export interface ConnectModeResult {
+export interface SpawnResult {
   readonly pid: number;
   readonly metricsUrl: string;
   readonly logFile: string;
@@ -18,6 +18,8 @@ export interface ConnectModeResult {
   readonly binaryPath: string;
   readonly tunnelId: string | null;
 }
+
+export interface ConnectModeResult extends SpawnResult {}
 
 export const decodeTunnelIdFromToken = (token: string): string | null => {
   try {
@@ -36,9 +38,13 @@ export const decodeTunnelIdFromToken = (token: string): string | null => {
   }
 };
 
-export const runConnect = async (
+// Step A: install + spawn. Returns the running pid as soon as the connector
+// has reported a metrics address. Caller is expected to persist this state
+// BEFORE invoking `waitConnectorHealthy` so that a healthy-wait timeout
+// still leaves the post-step enough information to SIGTERM the connector.
+export const installAndSpawn = async (
   params: ConnectModeParams,
-): Promise<ConnectModeResult> => {
+): Promise<SpawnResult> => {
   const platform = detectPlatform();
   const requestedLatest = params.cloudflaredVersion.trim() === "latest";
   const version = await resolveVersion(params.cloudflaredVersion);
@@ -57,19 +63,26 @@ export const runConnect = async (
     metricsBind: params.metrics,
   });
 
-  if (params.waitForConnections) {
-    log.info(`Waiting for healthy connection at ${spawned.metricsUrl}/ready`);
-    await waitForHealthy({
-      metricsUrl: spawned.metricsUrl,
-      timeoutSeconds: params.waitTimeoutSeconds,
-    });
-    log.info("Connector reports a healthy edge connection");
-  }
-
   return {
     ...spawned,
     version,
     binaryPath,
     tunnelId: decodeTunnelIdFromToken(params.tunnelToken),
   };
+};
+
+// Step B: optionally block until the connector reports a healthy edge
+// connection. If this throws, the caller has already persisted the pid in
+// step A and the post-step will SIGTERM the orphaned process.
+export const waitConnectorHealthy = async (
+  params: ConnectModeParams,
+  metricsUrl: string,
+): Promise<void> => {
+  if (!params.waitForConnections) return;
+  log.info(`Waiting for healthy connection at ${metricsUrl}/ready`);
+  await waitForHealthy({
+    metricsUrl,
+    timeoutSeconds: params.waitTimeoutSeconds,
+  });
+  log.info("Connector reports a healthy edge connection");
 };
