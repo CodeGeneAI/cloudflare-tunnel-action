@@ -53,15 +53,10 @@ export const installAndSpawn = async (
   params: ConnectModeParams,
 ): Promise<SpawnResult> => {
   const platform = detectPlatform();
-  const requestedLatest = params.cloudflaredVersion.trim() === "latest";
   const version = await resolveVersion(params.cloudflaredVersion);
   log.info(`Using cloudflared ${version} for ${platform.os}/${platform.arch}`);
 
-  // Allow a missing sha256 sidecar only when the user explicitly requested
-  // "latest" — pinned versions must verify or fail closed.
-  const binaryPath = await installCloudflared(version, platform, {
-    allowMissingSidecar: requestedLatest,
-  });
+  const binaryPath = await installCloudflared(version, platform);
 
   const spawned = await spawnConnector({
     binaryPath,

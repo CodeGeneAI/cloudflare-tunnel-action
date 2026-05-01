@@ -62,10 +62,15 @@ What this action does **not** defend against:
   fork PRs that way can be exfiltrated by malicious diffs. The bundled
   self-test workflow gates explicitly on
   `head.repo.full_name == github.repository`.
-- **Compromised cloudflared release artifacts.** SHA-256 verification is
-  enforced when `cloudflared-version` is pinned; the verification is
-  best-effort soft-fail when `cloudflared-version: latest` is used and
-  the upstream `.sha256` sidecar is missing.
+- **Compromised cloudflared release artifacts.** As of 2026-05,
+  cloudflared upstream does **not** publish per-asset `.sha256` sidecar
+  files for any of its release binaries. This action attempts to fetch
+  `<asset>.sha256` for every download, verifies the binary against it
+  when present, and warns-and-continues when absent (the current upstream
+  norm). If a future cloudflared release ships sidecars, verification
+  becomes automatic. If you need stronger guarantees in the meantime,
+  pin `cloudflared-version` to a tag whose binary hash you've audited
+  out-of-band, fork this action, and add a known-good-hash check.
 
 ## Reporting cadence
 
