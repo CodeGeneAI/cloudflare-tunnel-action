@@ -142,9 +142,12 @@ the job spawned, so multi-instance use is supported and isolated.
 
 ## Supported platforms
 
-- `ubuntu-latest`, `ubuntu-24.04-arm` (Linux x64 / arm64)
-- `macos-latest`, `macos-13` (macOS arm64 / x64)
-- **Windows is not supported in v1.** Planned for v1.1.
+v1 supports Linux only. macOS lands in v1.1; Windows after that.
+
+- `ubuntu-latest`, `ubuntu-24.04-arm` (Linux x64 / arm64) — supported
+- `macos-*` — **planned for v1.1** (the action throws today with a
+  clear message)
+- `windows-*` — not supported
 
 The action runtime is `node24`, which requires GitHub Actions runner
 **v2.328.0 or newer** (the default on hosted runners since 2026-03-04).

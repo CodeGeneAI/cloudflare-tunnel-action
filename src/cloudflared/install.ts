@@ -143,32 +143,12 @@ export const installCloudflared = async (
     );
   }
 
-  let extractedDir: string;
-  let exeName = `cloudflared${platform.exeSuffix}`;
-
-  if (platform.needsExtract) {
-    extractedDir = await tc.extractTar(downloaded);
-    const candidates = fs.readdirSync(extractedDir);
-    const matches = candidates.filter((c) => c.startsWith("cloudflared"));
-    if (matches.length === 0) {
-      throw new Error(
-        `cloudflared binary not found after extracting ${platform.assetName}. Directory contents: ${candidates.join(", ") || "(empty)"}`,
-      );
-    }
-    if (matches.length > 1) {
-      throw new Error(
-        `Ambiguous cloudflared binary after extracting ${platform.assetName}; matched ${matches.length} candidates: ${matches.join(", ")}`,
-      );
-    }
-    const onlyMatch = matches[0];
-    if (!onlyMatch) {
-      throw new Error("unreachable: matches.length === 1 guaranteed above");
-    }
-    exeName = onlyMatch;
-  } else {
-    extractedDir = path.dirname(downloaded);
-    fs.renameSync(downloaded, path.join(extractedDir, exeName));
-  }
+  // Linux assets are a bare binary — rename in place so the cached file has
+  // a stable filename. (macOS/Windows extraction paths will return when
+  // those platforms are added in v1.1+.)
+  const exeName = `cloudflared${platform.exeSuffix}`;
+  const extractedDir = path.dirname(downloaded);
+  fs.renameSync(downloaded, path.join(extractedDir, exeName));
 
   const binaryPath = path.join(extractedDir, exeName);
   fs.chmodSync(binaryPath, 0o755);

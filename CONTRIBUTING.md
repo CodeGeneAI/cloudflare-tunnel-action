@@ -47,6 +47,25 @@ When you add a new module, add a `*.unit.spec.ts` for it. The CI
 `dist/` changes — but they will be re-bundled by the maintainer before
 release.
 
+## Self-test secrets (canonical repo only)
+
+The `.github/workflows/self-test.yml` workflow exercises both modes
+against a real Cloudflare account. To keep the workflow meaningful, the
+canonical `CodeGeneAI/cloudflare-tunnel-action` repo must have these
+secrets configured (org or repo level):
+
+| Secret                          | What it is                                                                                                                                                                                                | How to provision                                                                                                                                  |
+|---------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SELF_TEST_TUNNEL_TOKEN`        | Connector token for a long-lived Cloudflare tunnel that the `test-connect` job attaches to.                                                                                                               | Cloudflare dashboard → Zero Trust → Networks → Tunnels → create a tunnel named e.g. `cloudflare-tunnel-action-self-test`, copy the connector token. |
+| `SELF_TEST_PROBE_URL`           | A URL routed through that tunnel that the `test-connect` job will `curl --fail` to prove requests round-trip end-to-end. Optional — without it, the job only proves the connector becomes healthy.        | Add a public hostname → service mapping in the same tunnel that points at any `200`-returning private origin (`/health`, `/`, etc.).             |
+| `SELF_TEST_CF_API_TOKEN`        | A Cloudflare API token used by the `test-create` job to create + delete an ephemeral tunnel.                                                                                                              | Dashboard → My Profile → API Tokens → Create Custom Token with **Account → Cloudflare Tunnel → Edit**.                                            |
+| `SELF_TEST_CF_ACCOUNT_ID`       | The Cloudflare account ID the API token is scoped to.                                                                                                                                                      | Dashboard → any zone overview → Account ID (right sidebar).                                                                                       |
+
+The two `Require self-test secrets in canonical repo` steps fail loudly
+when these are unset on the canonical repo, by design — silent green CI
+would let a rotated secret rot indefinitely. On forks (where GitHub
+will not pass repo secrets) the workflow is skipped via the `guard` job.
+
 ## Self-test caveat for fork PRs
 
 GitHub does **not** pass repository secrets to workflows triggered by
