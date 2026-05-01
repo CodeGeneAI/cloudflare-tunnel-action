@@ -49,74 +49,49 @@ const downloadChecksum = async (
 // "use vs redownload" rule so it can be unit-tested without spinning up
 // `@actions/tool-cache`.
 //
-//   expected   actual    allowMissingSidecar  → decision
-//   <hash>     <match>   *                    → "use"
-//   <hash>     <miss>    *                    → "redownload"
-//   null       *         true                 → "use"
-//   null       *         false                → "redownload"
-//
-// `actual` is unused when `expected === null`; passed through for symmetry.
+//   expected   actual   → decision
+//   <hash>     <match>  → "use"
+//   <hash>     <miss>   → "redownload"
+//   null       *        → "use" (cache reflects what we'd download anyway —
+//                         upstream cloudflared does not publish per-asset
+//                         .sha256 sidecars)
 export const decideCacheUse = (
   expected: string | null,
   actual: string | null,
-  allowMissingSidecar: boolean,
 ): "use" | "redownload" => {
-  if (expected !== null) {
-    return actual === expected ? "use" : "redownload";
-  }
-  return allowMissingSidecar ? "use" : "redownload";
+  if (expected !== null) return actual === expected ? "use" : "redownload";
+  return "use";
 };
-
-export interface InstallOptions {
-  // When false (the default for pinned versions), a missing or unreadable
-  // .sha256 sidecar is a hard error. Set to true only for "latest" or when
-  // the user explicitly opts out of verification.
-  readonly allowMissingSidecar: boolean;
-}
 
 export const installCloudflared = async (
   version: string,
   platform: PlatformDescriptor,
-  options: InstallOptions,
 ): Promise<string> => {
   log.debug(
-    `installCloudflared version=${version} arch=${platform.arch} asset=${platform.assetName} allowMissingSidecar=${options.allowMissingSidecar}`,
+    `installCloudflared version=${version} arch=${platform.arch} asset=${platform.assetName}`,
   );
 
   const cached = tc.find(TOOL_NAME, version, platform.arch);
   if (cached.length > 0) {
     const cachedBinary = path.join(cached, `cloudflared${platform.exeSuffix}`);
-    // Re-verify on cache hit so a poisoned tool-cache (persistent self-hosted
-    // runners with shared caches, or a previous run that bypassed sha256
-    // verification via `latest` mode) cannot serve an unverified binary.
+    // Re-verify on cache hit when a sidecar IS available, so a poisoned cache
+    // (persistent self-hosted shared cache, or an attacker-supplied earlier
+    // download) cannot serve a tampered binary undetected. When no sidecar is
+    // available — the default for cloudflared upstream today — we serve the
+    // cache as-is, matching the download-path behavior.
     const expectedHash = await downloadChecksum(version, platform.assetName);
     const actualHash = expectedHash ? await sha256OfFile(cachedBinary) : null;
-    const decision = decideCacheUse(
-      expectedHash,
-      actualHash,
-      options.allowMissingSidecar,
-    );
-    if (decision === "use") {
-      if (expectedHash) {
-        log.info(
-          `cloudflared ${version} found in tool cache (sha256 verified): ${cached}`,
-        );
-      } else {
-        log.info(
-          `cloudflared ${version} found in tool cache: ${cached} (sidecar unavailable, cache served as-is in latest mode).`,
-        );
-      }
+    if (decideCacheUse(expectedHash, actualHash) === "use") {
+      log.info(
+        expectedHash
+          ? `cloudflared ${version} found in tool cache (sha256 verified): ${cached}`
+          : `cloudflared ${version} found in tool cache: ${cached}`,
+      );
       return cachedBinary;
     }
-    if (expectedHash && actualHash) {
-      log.warning(
-        `Cached cloudflared ${version} fails sha256 verification (expected ${expectedHash}, got ${actualHash}); re-downloading.`,
-      );
-    } else {
-      log.warning(
-        `Cached cloudflared ${version} cannot be re-verified (no sidecar); re-downloading to fail-closed.`,
-      );
-    }
+    log.warning(
+      `Cached cloudflared ${version} fails sha256 verification (expected ${expectedHash}, got ${actualHash}); re-downloading.`,
+    );
     // Fall through to the download path below.
   }
 
@@ -133,13 +108,12 @@ export const installCloudflared = async (
       );
     }
     log.info(`cloudflared sha256 verified (${expected.slice(0, 12)}…)`);
-  } else if (!options.allowMissingSidecar) {
-    throw new Error(
-      `No sha256 sidecar published for ${platform.assetName}@${version} and binary verification is required for pinned versions. Pass cloudflared-version: "latest" to opt out, or report the missing sidecar to cloudflare/cloudflared.`,
-    );
   } else {
+    // cloudflared upstream does not currently publish per-asset .sha256
+    // files (verified May 2026). The action proceeds without verification
+    // in this case rather than failing — see SECURITY.md threat model.
     log.warning(
-      `No sha256 sidecar published for ${platform.assetName}@${version}; proceeding without verification (allow-missing-sidecar mode).`,
+      `No sha256 sidecar published for ${platform.assetName}@${version}; proceeding without verification (cloudflared upstream does not publish per-asset hashes — see SECURITY.md).`,
     );
   }
 

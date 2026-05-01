@@ -34,24 +34,14 @@ describe("parseSha256Sidecar", () => {
 
 describe("decideCacheUse", () => {
   test("hash matches → use", () => {
-    expect(decideCacheUse("a".repeat(64), "a".repeat(64), false)).toBe("use");
-    expect(decideCacheUse("a".repeat(64), "a".repeat(64), true)).toBe("use");
+    expect(decideCacheUse("a".repeat(64), "a".repeat(64))).toBe("use");
   });
 
-  test("hash mismatches → redownload regardless of allowMissingSidecar", () => {
-    expect(decideCacheUse("a".repeat(64), "b".repeat(64), false)).toBe(
-      "redownload",
-    );
-    expect(decideCacheUse("a".repeat(64), "b".repeat(64), true)).toBe(
-      "redownload",
-    );
+  test("hash mismatches → redownload", () => {
+    expect(decideCacheUse("a".repeat(64), "b".repeat(64))).toBe("redownload");
   });
 
-  test("no sidecar + allowMissingSidecar=true → use (latest mode)", () => {
-    expect(decideCacheUse(null, null, true)).toBe("use");
-  });
-
-  test("no sidecar + allowMissingSidecar=false → redownload (pinned mode)", () => {
-    expect(decideCacheUse(null, null, false)).toBe("redownload");
+  test("no sidecar → use (upstream does not publish hashes today)", () => {
+    expect(decideCacheUse(null, null)).toBe("use");
   });
 });
