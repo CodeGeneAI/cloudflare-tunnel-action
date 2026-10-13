@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { USER_AGENT } from "../src/util/constants";
+import { resolveRegistrySpec } from "./registry-spec";
 
 interface PackageJson {
   readonly dependencies?: Record<string, string>;
@@ -100,10 +101,13 @@ const main = async (): Promise<void> => {
   const all = { ...pkg.dependencies, ...pkg.devDependencies };
 
   const reports: DriftReport[] = [];
-  for (const [name, range] of Object.entries(all)) {
+  for (const [name, declaredRange] of Object.entries(all)) {
+    // An `npm:` alias is looked up under the aliased package, not its folder name.
+    const { registryName, range } = resolveRegistrySpec(name, declaredRange);
+    const label = registryName === name ? name : `${name} (${registryName})`;
     try {
-      const latest = await fetchLatestNpm(name);
-      reports.push(compare(name, range, latest));
+      const latest = await fetchLatestNpm(registryName);
+      reports.push(compare(label, range, latest));
     } catch (e) {
       process.stdout.write(
         `warn ${name}: ${e instanceof Error ? e.message : String(e)}\n`,
