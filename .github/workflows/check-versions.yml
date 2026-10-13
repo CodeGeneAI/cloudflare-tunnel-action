@@ -15,6 +15,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.13
+          # Needs Bun >=1.4.0 so `bun install` resolves @typescript/typescript6's
+          # nested npm: alias correctly (the TypeScript 6 + 7 side-by-side
+          # setup); 1.3.x leaves `require("typescript")` empty. Fixed by
+          # https://github.com/oven-sh/bun/pull/33835 (issue 33834), merged
+          # 2026-08-06 and contained in the 1.4.0 tag (2026-08-20). 1.4.2
+          # matches the CodeGeneAI/platform pin.
+          bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run check-versions

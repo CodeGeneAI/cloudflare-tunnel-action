@@ -6,14 +6,14 @@
   "license": "MIT",
   "author": "CodeGeneAI",
   "engines": {
-    "bun": ">=1.3.13"
+    "bun": ">=1.4.0"
   },
   "scripts": {
     "build": "bunx @vercel/ncc build src/main.ts -o dist --minify && bunx @vercel/ncc build src/post.ts -o dist-post --minify && mv dist-post/index.js dist/post.js && rm -rf dist-post",
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
-    "test:unit": "bun test src",
+    "test:unit": "bun test src scripts",
     "verify-dist": "bun run build && git diff --exit-code -- dist/",
     "check-versions": "bun run scripts/check-versions.ts"
   },
@@ -24,7 +24,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
     "@types/bun": "^1.3.13",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@vercel/ncc": "^0.44.1",
-    "typescript": "^6.0.3"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }
